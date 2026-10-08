@@ -18,6 +18,24 @@ Self-hosted monitor for Finnish electricity spot prices (Nord Pool day-ahead, 15
 
 The estimate is a machine-learning forecast and can be badly off on volatile days; only the solid line is the real price.
 
+## Two ways to run
+| | Docker (NAS) | Standalone (double-click) |
+|---|---|---|
+| Start | `docker compose up -d` | open `ElectricityFinland.html` |
+| Alarms | 24/7 on the server | only while the page is open |
+| Email | your SMTP server (`.env`) | free [EmailJS](https://www.emailjs.com) account |
+| Login | password | none (local only) |
+| Settings stored | SQLite on the NAS | browser localStorage |
+
+Both use the same `web/` page. Opened from disk (`file://`), `web/local.js` takes over the backend's job in the browser.
+
+## Standalone (no Docker)
+1. Download the repo (Code → Download ZIP) and unzip.
+2. Double-click **`ElectricityFinland.html`** (Chrome, Edge, Firefox or Safari; needs internet).
+3. Fill in costs/alarms/notifications and Save. Keep the tab open for alarms. Background tabs are checked once a minute, which is enough.
+
+Email in standalone mode: create a free EmailJS account, add an email service (e.g. Gmail/Outlook), and a template with *To* = `{{to_email}}`, subject `{{subject}}`, body `{{message}}`. Enter the service ID, template ID and public key under **Notifications**. If a data source blocks requests from a local file, the footer shows a ⚠ message.
+
 ## Install (Synology / any Docker host)
 ```sh
 git clone https://github.com/sbarrak/electricityfinland.git && cd electricityfinland
@@ -47,7 +65,8 @@ Enter all per-kWh fees in **c/kWh including VAT**, as they appear on Finnish inv
 ```
 docker-compose.yml   nginx (static + /api proxy) + app
 app/main.py          FastAPI: fetchers, cost calc, alarms, notifications, login (SQLite in ./data)
-web/                 index.html, app.js, style.css (Chart.js)
+web/                 index.html, app.js, style.css (Chart.js), local.js (standalone backend)
+ElectricityFinland.html  double-click launcher for standalone mode
 nginx/default.conf
 ```
 Update: `git pull && docker compose up -d --build`.

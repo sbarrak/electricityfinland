@@ -14,12 +14,15 @@ const FIELDS = {
     ['quiet_start', 'Quiet from hour (-1 off)', 1], ['quiet_end', 'Quiet until hour', 1],
     ['summary_on', "Daily summary when tomorrow's prices publish", 'cb']],
 };
+const LOCAL = window.LOCAL;  // set by local.js when opened as a file
+if (LOCAL) { FIELDS.notif.push(...LOCAL.fields); $('#emailHint').innerHTML = LOCAL.emailHint; $('#logout').classList.add('hidden'); }
 for (const [id, list] of Object.entries(FIELDS))
   $('#' + id).innerHTML = list.map(([k, label, t]) => t === 'cb'
     ? `<label class="sw full"><input type="checkbox" data-k="${k}"><span>${label}</span></label>`
     : `<label>${label}<input data-k="${k}" type="${t === 'text' || t === 'email' ? t : 'number'}" step="${t === 1 ? 1 : 'any'}" ${t ? '' : 'inputmode="decimal"'}></label>`).join('');
 
 async function api(path, opts = {}) {
+  if (LOCAL) return LOCAL.api(path, opts);
   const r = await fetch('/api/' + path, { headers: { 'Content-Type': 'application/json' }, ...opts });
   if (r.status === 401 && path !== 'login') { show(false); throw new Error('login'); }
   const j = await r.json().catch(() => ({}));
@@ -165,7 +168,8 @@ function render() {
   chart = new Chart($('#chart'), cfg);
   const last = D.actual.at(-1);
   $('#status').textContent = `Published prices until ${last ? new Date(last[0] * 1000).toLocaleString('fi-FI') : '–'}` +
-    ` · email ${D.smtp ? 'configured' : 'not configured'} · Fingrid ${D.fingrid ? 'on' : 'off'}`;
+    ` · email ${D.smtp ? 'configured' : 'not configured'} · Fingrid ${D.fingrid ? 'on' : 'off'}` +
+    (D.errors?.length ? ' · ⚠ ' + D.errors.join(' · ') : '');
 }
 const status = () => D && render();
 
