@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="theme-color" content="#0f172a">
+<title>Electricity Finland</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div id="login" class="login hidden">
+  <form id="loginForm" class="card">
+    <h1>⚡ Electricity Finland</h1>
+    <input id="pw" type="password" placeholder="Password" autocomplete="current-password" required>
+    <button>Log in</button>
+    <p id="loginErr" class="err"></p>
+  </form>
+</div>
+
+<div id="main" class="hidden">
+  <header>
+    <h1>⚡ Spot price FI</h1>
+    <div class="seg" id="mode">
+      <button data-v="spot">Spot + VAT</button><button data-v="total">Total cost</button>
+    </div>
+    <div class="seg" id="range">
+      <button data-v="1">1d</button><button data-v="3">3d</button><button data-v="7">7d</button>
+    </div>
+    <button id="logout" class="ghost">Log out</button>
+  </header>
+
+  <section class="alarmbar card">
+    <label class="sw"><input type="checkbox" data-k="high_on"><span>🔴 Above</span></label>
+    <input type="number" step="0.1" data-k="high" inputmode="decimal"><span class="u">c/kWh</span>
+    <label class="sw"><input type="checkbox" data-k="low_on"><span>🟢 Below</span></label>
+    <input type="number" step="0.1" data-k="low" inputmode="decimal"><span class="u">c/kWh</span>
+    <select data-k="alarm_basis"><option value="total">on total cost</option><option value="spot">on spot + VAT</option></select>
+    <label class="sw"><input type="checkbox" data-k="wa_on"><span>WhatsApp</span></label>
+    <label class="sw"><input type="checkbox" data-k="email_on"><span>Email</span></label>
+    <button class="save">Save</button>
+  </section>
+
+  <section class="cards" id="cards"></section>
+
+  <section class="card chartwrap"><canvas id="chart"></canvas></section>
+  <p class="legend">Solid = published Nord Pool day-ahead price · dashed = estimate (nordpool-predict-fi) · blue = wind power MW</p>
+
+  <section class="settings">
+    <details class="card" open>
+      <summary>Costs <small>c/kWh incl. VAT</small></summary>
+      <div class="grid" id="costs"></div>
+    </details>
+    <details class="card">
+      <summary>Monthly fees <small>€ / month</small></summary>
+      <div class="grid" id="monthly"></div>
+      <p class="hint" id="monthlyInfo"></p>
+    </details>
+    <details class="card">
+      <summary>Notifications</summary>
+      <div class="grid" id="notif"></div>
+      <p class="hint">WhatsApp uses <a href="https://www.callmebot.com/blog/free-api-whatsapp-messages/" target="_blank" rel="noopener">CallMeBot</a>: send “I allow callmebot to send me messages” to +34 644 51 95 23 to get your API key. Email uses the SMTP server set in <code>.env</code>.</p>
+      <button id="test" class="ghost">Send test message</button> <span id="testOut" class="hint"></span>
+    </details>
+    <button class="save wide">Save settings</button>
+  </section>
+  <footer id="status"></footer>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns@3.0.0/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
