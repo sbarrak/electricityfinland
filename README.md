@@ -6,12 +6,12 @@ Self-hosted monitor for Finnish electricity spot prices (Nord Pool day-ahead, 15
 - **Zoomable chart**: hours on the axis with the day below, 15-minute steps at the closest zoom and up to one point per day when zoomed out. Opens on today −3 days … +2 days.
   - Zoom: pinch on the trackpad (or Ctrl + mouse wheel), pinch on iPad/iPhone, or the − / + buttons (⇔ time, ⇕ price). **Reset** returns to the default view.
   - Move: scroll bars under and beside the chart, two-finger swipe on the trackpad, or drag sideways on a touch screen.
-  - **From / To** dates and presets (last week, month, 3 months, year). **Average** shows the average price of the visible period as a line.
+  - **From / To** dates and presets (last week, month, 3 months, year). **Average** shows three averages for the visible period, each over its own part of the chart: past published prices (blue), fixed future prices (green) and the estimate (orange). The labels move apart when they would overlap.
   - **Spot / Total cost** buttons with an **Incl. VAT** checkbox. Colours: **blue** = published price up to now, **green** = published future price (fixed), **orange dashed** = estimate (not fixed yet). Red / green dashed lines = your high / low limits. The Average value has a yellow label.
   - Click a point to see its **price breakdown** (spot, VAT, margin, transfer, tax, monthly fees) in the box next to Monthly fees.
   - **Estimate vs actual** checkbox adds a tab comparing the estimate made *before* the price was published with the real price, with the average error.
 - **⟳ Refresh prices** fetches the latest prices immediately. Up to a year of past prices is loaded from [sahkotin.fi](https://sahkotin.fi).
-- **Login**: the first login is `admin` / `admin`; you must then pick your own username and password (Account button to change it later).
+- **Login and users**: the first login is `admin` / `admin`; you then pick your own username and password and become the **admin** (Account button to change it later). The admin can add and remove users in the **Users** box (username + temporary password; the new user chooses their own password at first login). Every user has their **own recipients, email server, alarms, messages and costs**, and gets their own daily 14:00 message.
 - **Alarms** (row above the chart, saved automatically): Nord Pool fixes the next day's prices around 13:45, so **one message per day is sent between 14:00 and 14:05** with the fixed prices from 14:00 to 14:00 the next day. It starts with a summary and lists every time the price goes **up to or above the high limit** or **down to or below the low limit**, with the price, day and time and how long it lasts, e.g. `🔴 High price 25.40 c/kWh · Sat 11.10. 17:00–19:15 (2 h 15 min) · limit 20`. If the prices are published late, the message is sent as soon as they arrive.
 - **Customizable messages** (✉ Customize messages, under Recipients): edit the high, low and daily-summary texts with placeholders like `{price}`, `{date}`, `{time}`, `{end}`, `{duration}`, `{limit}`, with a live example. Save or Cancel closes the window.
 - **Cards** with an ⓘ button explaining each value; a Transfer card shows the current transfer fee + tax.
@@ -39,7 +39,7 @@ The estimate is a machine-learning forecast and can be badly off on volatile day
 | Needs | Docker | Python 3.10+ | a browser |
 | Alarms | 24/7 on the server | while the script runs | only while the page is open |
 | Email | your SMTP server (`.env`) | your SMTP server (`.env`) | free [EmailJS](https://www.emailjs.com) account |
-| Login | admin/admin, then your own | admin/admin, then your own | none (local only) |
+| Login | admin/admin, then your own; admin adds users | admin/admin, then your own; admin adds users | none (local only, one user) |
 | Settings stored | SQLite on the NAS | SQLite in `./data` | browser localStorage |
 
 All three use the same `web/` page and the Docker and local server use the same `app/main.py`. Without nginx, the Python app serves `web/` itself. Opened from disk (`file://`), `web/local.js` takes over the backend's job in the browser.
@@ -51,7 +51,7 @@ Behaves exactly like the NAS version, so it's the best way to test before deploy
 3. The first start creates `.env` from `.env.example` and installs dependencies into `.venv`. Your browser then opens http://localhost:8000. Log in with `admin` / `admin` and choose your own username and password. Set up the email server in the page.
 4. Stop with Ctrl+C or by closing the window. Data is kept in `./data`.
 
-**Dev mode without login:** start **`./run-dev.sh`** (Mac/Linux) or **`run-dev.bat`** (Windows) instead. Same app and data, but no login screen. It only listens on this computer (localhost); never use it on the NAS.
+**Dev mode without login:** start **`./run-dev.sh`** (Mac/Linux) or **`run-dev.bat`** (Windows) instead. Same app and data, but no login screen (you are the admin). It only listens on this computer (localhost); never use it on the NAS.
 
 ## Standalone (no Docker)
 1. Download the repo (Code → Download ZIP) and unzip.
@@ -86,7 +86,7 @@ Open **Email server** in the page: server (default `mail.laseleka.com`), port `5
 The app tells browsers to always check for new files, but a browser that cached an older version before this fix may still show it once. Reload with **Cmd+Option+R** (Safari) or **Ctrl+Shift+R** (Chrome/Edge/Firefox). If the server is not running, the login screen now says so instead of staying blank.
 
 ### Forgot the login?
-Add `RESET_ADMIN=1` to `.env`, restart once, log in with `admin` / `admin`, choose new credentials, then remove the line.
+Add `RESET_ADMIN=1` to `.env`, restart once, log in with `admin` / `admin` (this resets the admin account; other users are not touched), choose new credentials, then remove the line. A user who forgot their password: the admin removes them and adds them again.
 
 ## Costs
 Enter all per-kWh fees in **c/kWh including VAT**, as they appear on Finnish invoices. Default electricity tax (class I incl. security-of-supply fee) is 2.827 c/kWh. Monthly fees are shown as €/month; tick *Spread monthly fees* and enter your monthly consumption to include them in the total c/kWh.

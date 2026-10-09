@@ -8,7 +8,7 @@ const LOCAL = window.LOCAL;  // set by local.js when opened as a file
 const DAY = 864e5, MIN_SPAN = 3 * 36e5, BUCKETS = [900, 3600, 10800, 21600, 86400];
 const RES = { 900: '15 min', 3600: '1 h', 10800: '3 h', 21600: '6 h', 86400: '1 day' };
 const NAMES = { spot: 'spot', total: 'total cost' };
-let D = null, S = {}, chart = null, filled = false, loadedDays = 60, bucket = null, avgVal = null, tickStep = 1;
+let D = null, S = {}, chart = null, filled = false, loadedDays = 60, bucket = null, avgs = [], tickStep = 1, me = {};
 let mode = store('mode') === 'spot' ? 'spot' : 'total', vat = store('vat') !== '0', cmp = store('cmp') === '1', avgOn = store('avg') === '1';
 let tab = 'prices', view = null, yZoom = 1, yPos = 0.5, touched = 0, sel = null;  // sel: chart point picked for the breakdown
 
@@ -75,7 +75,8 @@ const saveNow = async () => {
   await putSettings({ ...readFields($('#alarmbar')), ...readFields($('#settings')) });
   monthlyInfo(); refreshValues();
 };
-const autosave = () => {
+const autosave = e => {
+  if (e?.target?.closest?.('#usersCard')) return;  // the users box has its own Add button
   clearTimeout(saveTimer);
   saveTimer = setTimeout(() => saveNow().then(() => flash('Saved ✓'), e => flash('Not saved: ' + e.message)), 400);
 };
@@ -94,6 +95,24 @@ $$('.test').forEach(b => b.onclick = async () => {
     out(Object.entries(r).map(([k, v]) => `${k}: ${v}`).join(' · '));
   } catch (e) { out(e.message); }
 });
+
+// users (admin only)
+function renderUsers(list) {
+  $('#userList').innerHTML = list.map(u => `<div class="urow"><span>👤 ${esc(u.username)}` +
+    `${u.is_admin ? ' <small>(admin)</small>' : ''}${u.must_change ? ' <small>(temporary password)</small>' : ''}</span>` +
+    `${u.is_admin ? '' : `<button type="button" class="ghost" data-uid="${u.id}" data-name="${esc(u.username)}" title="Remove user">✕</button>`}</div>`).join('');
+}
+$('#userList').addEventListener('click', async e => {
+  const b = e.target.closest('[data-uid]');
+  if (!b || !confirm(`Remove ${b.dataset.name}? Their recipients and settings are deleted too.`)) return;
+  try { renderUsers(await api('users/' + b.dataset.uid, { method: 'DELETE' })); } catch (err) { $('#nuErr').textContent = err.message; }
+});
+$('#nuAdd').onclick = async () => {
+  try {
+    renderUsers(await api('users', { method: 'POST', body: JSON.stringify({ username: $('#nuName').value.trim(), password: $('#nuPw').value }) }));
+    $('#nuName').value = $('#nuPw').value = ''; $('#nuErr').textContent = '';
+  } catch (err) { $('#nuErr').textContent = err.message; }
+};
 
 // message templates popup
 const dlg = $('#msgDialog');
@@ -137,10 +156,10 @@ function openChange(forced) {
   $('#changeHint').classList.toggle('hidden', !forced);
   $('#changeErr').textContent = '';
   $('#changeForm').reset();
+  if (me.username && me.username.toLowerCase() !== 'admin') $('#newUser').value = me.username;
   screen('change');
 }
 async function boot() {
-  let me;
   try { me = await api('me'); } catch (e) {
     if (e.message !== 'login required') {  // server not running or not reachable
       screen('login');
@@ -151,6 +170,9 @@ async function boot() {
   if (me.must_change) return openChange(true);
   $('#who').textContent = '👤 ' + me.username;
   if (me.dev) ['#account', '#logout'].forEach(s => $(s).classList.add('hidden'));
+  $('#usersCard').classList.toggle('hidden', !me.is_admin);
+  if (me.is_admin) api('users').then(renderUsers, () => {});
+  filled = false;  // another user may have logged in: load their settings into the form
   screen('main');
   load();
 }
@@ -337,7 +359,25 @@ const overlay = {
       }
     }
     if (showThr()) { if (S.high_on) hline(S.high, css('--hi')); if (S.low_on) hline(S.low, css('--lo')); }
-    if (avgOn && avgVal != null) hline(avgVal, css('--fg'), `avg ${fmt(avgVal)}`);
+    if (avgOn) {  // one average per part of the chart, drawn over that part; labels move up when they would overlap
+      const placed = [];
+      g.font = '600 12px sans-serif';
+      for (const a of avgs) {
+        const py = y.getPixelForValue(a.v), x0 = Math.max(left, x.getPixelForValue(a.x0)), x1 = Math.min(right, x.getPixelForValue(a.x1));
+        if (py < top || py > bottom || x1 <= x0) continue;
+        g.strokeStyle = a.color; g.lineWidth = 2; g.setLineDash([6, 3]);
+        g.beginPath(); g.moveTo(x0, py); g.lineTo(x1, py); g.stroke();
+        const text = `${a.name} ${fmt(a.v)}`, w = g.measureText(text).width + 14;
+        let lx = Math.min(Math.max(x0 + 4, left + 4), right - w - 4), ly = py - 19;
+        while (placed.some(p => lx < p.x + p.w && lx + w > p.x && ly < p.y + 17 && ly + 17 > p.y)) ly -= 19;
+        if (ly < top) ly = Math.min(bottom - 17, py + 3 + placed.filter(p => p.y > py).length * 19);
+        placed.push({ x: lx, y: ly, w });
+        g.setLineDash([]); g.fillStyle = '#fde047'; g.fillRect(lx, ly, w, 17);
+        g.fillStyle = a.color; g.fillRect(lx, ly, 4, 17);
+        g.fillStyle = '#111827'; g.fillText(text, lx + 9, ly + 13);
+      }
+      g.lineWidth = 1;
+    }
     if (sel != null) {
       const sx = x.getPixelForValue(sel * 1000);
       if (sx > left && sx < right) { g.setLineDash([2, 3]); g.strokeStyle = css('--muted'); g.beginPath(); g.moveTo(sx, top); g.lineTo(sx, bottom); g.stroke(); }
@@ -394,6 +434,19 @@ function yRange() {
   const pad = (hi - lo) * 0.08 || 1;
   return [Math.min(0, lo - pad), hi + pad];
 }
+function averages() {  // time-weighted averages of the visible past, fixed-future and estimated prices
+  const slot = Math.floor(Date.now() / 9e5) * 900, la = lastActual();
+  const parts = tab === 'compare'
+    ? [['avg actual', D.actual, '--accent'], ['avg estimate', D.forecast.filter(r => r[0] <= la), '--est']]
+    : [['avg past', D.actual.filter(r => r[0] <= slot), '--accent'], ['avg fixed', D.actual.filter(r => r[0] > slot), '--fixed'],
+      ['avg estimate', D.forecast.filter(r => r[0] > la), '--est']];
+  return parts.map(([name, rows, color]) => {
+    const vis = visible(rows);
+    let sw = 0, sv = 0, w = 0;
+    vis.forEach((r, i) => { w = Math.min(3600, (vis[i + 1]?.[0] ?? r[0] + 900) - r[0]); sw += w; sv += val(r) * w; });
+    return sw && { name, color: css(color), v: sv / sw, x0: vis[0][0] * 1000, x1: (vis.at(-1)[0] + w) * 1000 };
+  }).filter(Boolean);
+}
 function visible(rows) { const a = view.min / 1000, b = view.max / 1000; return rows.filter(r => r[0] >= a && r[0] < b); }
 
 function update() {
@@ -404,11 +457,7 @@ function update() {
     bucket = b;
     for (const d of chart.data.datasets) d.data = agg(d.rows, b, d.kind === 'price' ? val : r => r[1], d.kind === 'price');
   }
-  // time-weighted average of published prices in the visible range
-  const vis = visible(D.actual);
-  let sw = 0, sv = 0;
-  vis.forEach((r, i) => { const w = Math.min(3600, (vis[i + 1]?.[0] ?? r[0] + 900) - r[0]); sw += w; sv += val(r) * w; });
-  avgVal = sw ? sv / sw : null;
+  avgs = averages();
   Object.assign(chart.options.scales.x, { min: view.min, max: view.max });
   let [lo, hi] = yRange(); lo = Math.floor(lo); hi = Math.ceil(hi);
   const h = (hi - lo) / yZoom, top = hi - yPos * (hi - lo - h);
@@ -420,7 +469,7 @@ function update() {
 
 function info() {
   let t = `Resolution ${RES[bucket]}`;
-  if (avgOn) t += ` · average ${fmt(avgVal)} c/kWh (${NAMES[mode]}, ${vat ? 'incl.' : 'excl.'} VAT)`;
+  if (avgOn) t += ` · ${avgs.map(a => `${a.name} ${fmt(a.v)}`).join(' · ') || 'no prices in view'} c/kWh (${NAMES[mode]}, ${vat ? 'incl.' : 'excl.'} VAT)`;
   if (tab === 'compare') {  // hourly comparison of estimate vs actual in view
     const hourly = rows => { const m = new Map(); agg(visible(rows), 3600, val).forEach(p => m.set(p.x, p.y)); return m; };
     const a = hourly(D.actual), f = hourly(D.forecast); let n = 0, err = 0, bias = 0;

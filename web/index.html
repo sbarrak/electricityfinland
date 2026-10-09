@@ -7,7 +7,7 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="theme-color" content="#0f172a">
 <title>Electricity Finland</title>
-<link rel="stylesheet" href="style.css?v=7">
+<link rel="stylesheet" href="style.css?v=8">
 </head>
 <body>
 <div id="fatal" class="fatal hidden"></div>
@@ -26,7 +26,7 @@
 <div id="change" class="screen hidden">
   <form id="changeForm" class="card">
     <h1>Change username and password</h1>
-    <p class="hint" id="changeHint">You are using the default login. Choose your own username and password to continue.</p>
+    <p class="hint" id="changeHint">You are using the default or a temporary login. Choose your own password to continue (and a username other than admin).</p>
     <input id="curPw" type="password" placeholder="Current password" autocomplete="current-password" required>
     <input id="newUser" placeholder="New username (min 3)" autocomplete="username" autocapitalize="none" required>
     <input id="newPw" type="password" placeholder="New password (min 8)" autocomplete="new-password" required>
@@ -119,6 +119,17 @@
       <p class="hint" id="emailHint">Messages are sent through this server with your relay username and password. Leave the password empty to keep the saved one.</p>
       <button class="ghost test" data-ch="email" type="button">Test email to selected</button> <span class="hint testOut"></span>
     </details>
+    <details class="card hidden" id="usersCard">
+      <summary>Users <small>admin only</small></summary>
+      <div id="userList"></div>
+      <div class="adduser">
+        <input id="nuName" placeholder="New username" autocomplete="off" autocapitalize="none">
+        <input id="nuPw" placeholder="Temporary password (min 8)" autocomplete="off">
+        <button type="button" id="nuAdd">Add user</button>
+      </div>
+      <p class="hint">A new user logs in with the temporary password and then chooses their own. Every user has their own recipients, email server, alarms, messages and costs.</p>
+      <p class="err" id="nuErr"></p>
+    </details>
   </section>
   <footer id="status"></footer>
 </div>
@@ -146,8 +157,8 @@
 
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns@3.0.0/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
-<script src="costs.js?v=7"></script>
-<script src="local.js?v=7"></script>
-<script src="app.js?v=7"></script>
+<script src="costs.js?v=8"></script>
+<script src="local.js?v=8"></script>
+<script src="app.js?v=8"></script>
 </body>
 </html>

@@ -133,3 +133,9 @@ dialog .preview{margin:0 0 6px}
 .recip .pick{display:flex;align-items:center;justify-content:center;width:36px;min-height:40px;cursor:pointer}
 .recip .pick input{width:20px;height:20px;accent-color:var(--accent)}
 @media (max-width:900px){.recip{grid-template-columns:auto 1fr 1fr}.recip .del{justify-self:end}}
+.urow{display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid var(--grid)}
+.urow small{color:var(--muted)}
+.urow button{min-height:32px;padding:2px 10px}
+.adduser{display:grid;grid-template-columns:1fr 1fr auto;gap:8px;margin-top:10px}
+.adduser input{min-width:0}
+@media (max-width:600px){.adduser{grid-template-columns:1fr}}
