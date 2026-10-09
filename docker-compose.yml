@@ -1,6 +1,6 @@
 services:
   app:
-    build: ./app
+    build: https://github.com/sbarrak/electricityfinland.git#main:app
     restart: unless-stopped
     env_file: .env
     volumes:
