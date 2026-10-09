@@ -3,10 +3,20 @@ import asyncio, hashlib, hmac, json, logging, os, smtplib, sqlite3, ssl, time
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta
 from email.message import EmailMessage
+from pathlib import Path
 from zoneinfo import ZoneInfo
 
 import httpx
 from fastapi import Depends, FastAPI, HTTPException, Request, Response
+from fastapi.staticfiles import StaticFiles
+
+ROOT = Path(__file__).resolve().parent.parent
+ENV_FILE = ROOT / ".env"
+if ENV_FILE.is_file():  # local run without Docker: read ../.env (real env vars win)
+    for line in ENV_FILE.read_text().splitlines():
+        k, sep, v = line.partition("=")
+        if sep and not k.strip().startswith("#"):
+            os.environ.setdefault(k.strip(), v.strip())
 
 log = logging.getLogger("elfi")
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
@@ -338,3 +348,8 @@ async def put_settings(body: dict):
 async def test_notify():
     async with httpx.AsyncClient(timeout=30) as c:
         return await notify(c, settings(), "✅ Test message from Electricity Finland", force=True)
+
+
+# Local run without nginx: serve the web page from ../web (in Docker nginx does this)
+if (ROOT / "web").is_dir():
+    app.mount("/", StaticFiles(directory=ROOT / "web", html=True), name="web")
