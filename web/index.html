@@ -7,7 +7,7 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="theme-color" content="#0f172a">
 <title>Electricity Finland</title>
-<link rel="stylesheet" href="style.css?v=6">
+<link rel="stylesheet" href="style.css?v=7">
 </head>
 <body>
 <div id="fatal" class="fatal hidden"></div>
@@ -105,13 +105,11 @@
       <summary>Recipients <small>WhatsApp / email</small></summary>
       <div id="recips"></div>
       <button id="addRecip" class="ghost" type="button">+ Add recipient</button>
-      <p class="hint">WhatsApp uses <a href="https://www.callmebot.com/blog/free-api-whatsapp-messages/" target="_blank" rel="noopener">CallMeBot</a>: each person sends “I allow callmebot to send me messages” to +34 644 51 95 23 from their phone and gets their own API key.</p>
+      <p class="hint">Tick the box at the start of a row to select that recipient for <b>Send test</b>. A recipient gets WhatsApp when the phone and key are filled in, and email when the address is filled in. WhatsApp uses <a href="https://www.callmebot.com/blog/free-api-whatsapp-messages/" target="_blank" rel="noopener">CallMeBot</a>: each person sends “I allow callmebot to send me messages” to +34 644 51 95 23 from their phone and gets their own API key.</p>
       <div class="grid" id="notif"></div>
       <div class="tests">
         <button class="ghost openMsg" type="button">✉ Customize messages</button>
-        <button class="ghost test" data-ch="all" type="button">Send test to all</button>
-        <button class="ghost test" data-ch="whatsapp" type="button">Test WhatsApp</button>
-        <button class="ghost test" data-ch="email" type="button">Test email</button>
+        <button class="ghost test" data-ch="all" type="button">Send test to selected</button>
       </div>
       <p class="hint testOut"></p>
     </details>
@@ -119,7 +117,7 @@
       <summary>Email server <small>SMTP relay</small></summary>
       <div class="grid" id="smtp"></div>
       <p class="hint" id="emailHint">Messages are sent through this server with your relay username and password. Leave the password empty to keep the saved one.</p>
-      <button class="ghost test" data-ch="email" type="button">Test email</button> <span class="hint testOut"></span>
+      <button class="ghost test" data-ch="email" type="button">Test email to selected</button> <span class="hint testOut"></span>
     </details>
   </section>
   <footer id="status"></footer>
@@ -148,8 +146,8 @@
 
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns@3.0.0/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
-<script src="costs.js?v=6"></script>
-<script src="local.js?v=6"></script>
-<script src="app.js?v=6"></script>
+<script src="costs.js?v=7"></script>
+<script src="local.js?v=7"></script>
+<script src="app.js?v=7"></script>
 </body>
 </html>

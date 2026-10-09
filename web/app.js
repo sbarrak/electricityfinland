@@ -35,14 +35,12 @@ if (LOCAL) {
   ['#account', '#logout', '#who'].forEach(s => $(s).classList.add('hidden'));
 }
 
-const recipRow = (r = { wa: true, mail: true }) => `<div class="recip">
+const recipRow = (r = {}) => `<div class="recip">
+  <label class="pick" title="Select for Send test"><input type="checkbox" data-t aria-label="Select"></label>
   <input data-r="name" placeholder="Name" value="${esc(r.name)}">
   <input data-r="phone" placeholder="WhatsApp +358…" inputmode="tel" value="${esc(r.phone)}">
   <input data-r="apikey" placeholder="CallMeBot API key" value="${esc(r.apikey)}">
   <input data-r="email" type="email" placeholder="Email" value="${esc(r.email)}">
-  <label class="sw"><input type="checkbox" data-r="wa" ${r.wa ? 'checked' : ''}><span>WhatsApp</span></label>
-  <label class="sw"><input type="checkbox" data-r="mail" ${r.mail ? 'checked' : ''}><span>Email</span></label>
-  <label class="sw test-pick" title="Send test messages to this recipient"><input type="checkbox" data-t><span>Test</span></label>
   <button type="button" class="ghost del" title="Remove">✕</button></div>`;
 $('#addRecip').onclick = () => $('#recips').insertAdjacentHTML('beforeend', recipRow());
 
@@ -91,7 +89,7 @@ $$('.test').forEach(b => b.onclick = async () => {
   try {
     await saveNow();
     const only = $$('.recip').map((row, i) => $('[data-t]', row).checked ? i : -1).filter(i => i >= 0);
-    if (!only.length) return out('Tick “Test” next to the recipients who should get the test message.');
+    if (!only.length) return out('Select at least one recipient first (tick the box at the start of the row).');
     const r = await api('test-notify', { method: 'POST', body: JSON.stringify({ channel: b.dataset.ch, only }) });
     out(Object.entries(r).map(([k, v]) => `${k}: ${v}`).join(' · '));
   } catch (e) { out(e.message); }

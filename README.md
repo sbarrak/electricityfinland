@@ -16,7 +16,7 @@ Self-hosted monitor for Finnish electricity spot prices (Nord Pool day-ahead, 15
 - **Customizable messages** (✉ Customize messages, under Recipients): edit the high, low and daily-summary texts with placeholders like `{price}`, `{date}`, `{time}`, `{end}`, `{duration}`, `{limit}`, with a live example. Save or Cancel closes the window.
 - **Cards** with an ⓘ button explaining each value; a Transfer card shows the current transfer fee + tax.
 - Costs, monthly fees, recipients and email server settings are **saved automatically** while you type.
-- **Several recipients**, each with their own WhatsApp number (CallMeBot key) and/or email. Tick **Test** next to the recipients who should get a test message, then use Send test to all / Test WhatsApp / Test email.
+- **Several recipients**, each with their own WhatsApp number (CallMeBot key) and/or email: WhatsApp goes to rows with a phone and key, email to rows with an address. Tick the box at the start of a row to select it, then **Send test to selected**.
 - **Email server menu** for your SMTP relay (server, port, STARTTLS/SSL, username, password) with a test button.
 - **Chart** also shows wind power forecast + actuals (MW, right axis) and a "now" line.
 - Total cost = spot + VAT + provider margin + transfer (day/night) + electricity tax + other, optionally plus monthly fees spread per kWh.
@@ -77,10 +77,10 @@ Use HTTPS: the login cookie is marked `Secure` when the proxy forwards `X-Forwar
 
 ### WhatsApp (CallMeBot)
 1. Add **+34 644 51 95 23** to your phone contacts, send it the WhatsApp message `I allow callmebot to send me messages`.
-2. You receive an API key. Under **Recipients** press **+ Add recipient**, enter the name, phone (`+358…`) and key, tick **WhatsApp**, then **Test WhatsApp**. Repeat for every person who should get messages (each needs their own key).
+2. You receive an API key. Under **Recipients** press **+ Add recipient**, enter the name, phone (`+358…`) and key, tick the box at the start of the row and press **Send test to selected**. Repeat for every person who should get messages (each needs their own key).
 
 ### Email server
-Open **Email server** in the page: server (default `mail.laseleka.com`), port `587`, security `starttls`, and your relay username and password. Untick *Verify server certificate* only for a self-signed certificate. Press **Test email** (it is sent to every recipient with Email ticked). The password is stored on the server and never sent back to the browser.
+Open **Email server** in the page: server (default `mail.laseleka.com`), port `587`, security `starttls`, and your relay username and password. Fill in **From address** with a real address on your domain (e.g. `power@laseleka.com`) when the relay username is not an email address, otherwise the server refuses the message. Untick *Verify server certificate* only for a self-signed certificate. Select recipients and press **Test email to selected**; a failure shows the reason (wrong username/password, untrusted certificate, missing From address). The password is stored on the server and never sent back to the browser.
 
 ### Blank page or old screens after an update?
 The app tells browsers to always check for new files, but a browser that cached an older version before this fix may still show it once. Reload with **Cmd+Option+R** (Safari) or **Ctrl+Shift+R** (Chrome/Edge/Firefox). If the server is not running, the login screen now says so instead of staying blank.

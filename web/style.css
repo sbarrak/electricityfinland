@@ -79,7 +79,7 @@ footer{margin-top:16px}
 .hscroll,.vscroll{scrollbar-width:auto;scrollbar-color:var(--line) transparent}
 .hscroll::-webkit-scrollbar,.vscroll::-webkit-scrollbar{height:12px;width:12px}
 .hscroll::-webkit-scrollbar-thumb,.vscroll::-webkit-scrollbar-thumb{background:var(--line);border-radius:6px}
-.recip{display:grid;grid-template-columns:1fr 1.2fr 1fr 1.4fr auto auto auto auto;gap:8px;align-items:center;margin:8px 0}
+.recip{display:grid;grid-template-columns:auto 1fr 1.2fr 1fr 1.4fr auto;gap:8px;align-items:center;margin:8px 0}
 .recip input{min-width:0;width:100%}
 .recip .del{min-height:36px;padding:4px 10px}
 .settings .card.wide{grid-column:1/-1}
@@ -130,4 +130,6 @@ dialog .preview{margin:0 0 6px}
 .alarmbar .sw.lo span{color:var(--lo);font-weight:600}
 .alarmbar .sw.hi input{accent-color:var(--hi)}
 .alarmbar .sw.lo input{accent-color:var(--lo)}
-.recip .test-pick{padding-left:8px;border-left:1px solid var(--line)}
+.recip .pick{display:flex;align-items:center;justify-content:center;width:36px;min-height:40px;cursor:pointer}
+.recip .pick input{width:20px;height:20px;accent-color:var(--accent)}
+@media (max-width:900px){.recip{grid-template-columns:auto 1fr 1fr}.recip .del{justify-self:end}}

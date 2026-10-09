@@ -74,6 +74,8 @@ def clean_recipient(r):
 
 def settings():
     s = {**DEFAULTS, **kv_get("settings", {})}
+    for k in ("smtp_host", "smtp_port", "smtp_security"):  # an empty saved value means "use the default"
+        s[k] = s[k] or DEFAULTS[k]
     if not s["recipients"] and (s.get("wa_phone") or s.get("email_to")):  # migrate single-recipient settings
         s["recipients"] = [clean_recipient({"name": "Me", "phone": s.get("wa_phone"), "apikey": s.get("wa_apikey"),
                                             "email": s.get("email_to"), "wa": True, "mail": True})]
@@ -171,7 +173,10 @@ async def fetch_forecasts(c, fingrid=True):
 # ---------------------------------------------------------------- notifications
 def send_mail(s, to, subject, text):
     msg = EmailMessage()
-    msg["From"], msg["To"], msg["Subject"] = s["smtp_from"] or s["smtp_user"], to, subject
+    sender = s["smtp_from"] or s["smtp_user"]
+    if "@" not in sender:
+        raise ValueError("fill in 'From address' in Email server (the username is not an email address)")
+    msg["From"], msg["To"], msg["Subject"] = sender, to, subject
     msg.set_content(text)
     ctx = ssl.create_default_context()
     if not s["smtp_verify"]:
@@ -193,7 +198,7 @@ async def notify(c, s, text, force=None):
     em = force in ("all", "email") or (force is None and s["email_on"])
     for r in s["recipients"]:
         who = r["name"] or r["phone"] or r["email"]
-        if wa and r["wa"] and r["phone"]:
+        if wa and r["phone"]:  # WhatsApp when a phone number is set, email when an address is set
             if not r["apikey"]:
                 out[f"{who} WhatsApp"] = "missing CallMeBot API key"
             else:
@@ -204,15 +209,19 @@ async def notify(c, s, text, force=None):
                     out[f"{who} WhatsApp"] = "sent" if ok else f"failed: {res.status_code} {res.text[:120]}"
                 except Exception as e:
                     out[f"{who} WhatsApp"] = f"failed: {e}"
-        if em and r["mail"] and r["email"]:
+        if em and r["email"]:
             if not s["smtp_host"]:
                 out[f"{who} email"] = "email server not configured"
             else:
                 try:
                     await asyncio.to_thread(send_mail, s, r["email"], "Electricity price alert", text)
                     out[f"{who} email"] = "sent"
+                except smtplib.SMTPAuthenticationError:
+                    out[f"{who} email"] = "failed: the mail server refused the username or password"
+                except ssl.SSLCertVerificationError:
+                    out[f"{who} email"] = "failed: the server certificate is not trusted (untick 'Verify server certificate')"
                 except Exception as e:
-                    out[f"{who} email"] = f"failed: {e}"
+                    out[f"{who} email"] = f"failed: {type(e).__name__}: {e}"
     if not out:
         out["info"] = "no recipient has this channel enabled"
     log.info("notify %s -> %s", text[:60], out)
@@ -511,7 +520,7 @@ async def test_notify(body: dict | None = None):
         if isinstance(only, list):
             s["recipients"] = [r for i, r in enumerate(s["recipients"]) if i in only]
             if not s["recipients"]:
-                raise HTTPException(400, "tick Test next to at least one recipient")
+                raise HTTPException(400, "select at least one recipient")
         a = int(time.time() // 900 * 900)  # example: the daily message for the published prices from now on
         rows = db.execute("SELECT ts, spot FROM prices WHERE ts>=? ORDER BY ts", (a - 3600,)).fetchall()
         text = "✅ Test message from Electricity Finland. Example of the daily message:\n" + (daily_message(s, rows, a, a + 86400) or "(no published prices yet)")

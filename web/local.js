@@ -84,13 +84,13 @@
     const out = {}, wa = ['all', 'whatsapp'].includes(force) || (!force && s.wa_on), em = ['all', 'email'].includes(force) || (!force && s.email_on);
     for (const r of s.recipients) {
       const who = r.name || r.phone || r.email;
-      if (wa && r.wa && r.phone) {
+      if (wa && r.phone) {
         if (!r.apikey) out[who + ' WhatsApp'] = 'missing CallMeBot API key';
         else  // CallMeBot sends no CORS headers: fire-and-forget, the response cannot be read
           await fetch(`https://api.callmebot.com/whatsapp.php?phone=${encodeURIComponent(r.phone)}&apikey=${encodeURIComponent(r.apikey)}&text=${encodeURIComponent(text)}`, { mode: 'no-cors' })
             .then(() => out[who + ' WhatsApp'] = 'sent (check the phone)', e => out[who + ' WhatsApp'] = 'failed: ' + e.message);
       }
-      if (em && r.mail && r.email) {
+      if (em && r.email) {
         if (!(s.ejs_service && s.ejs_template && s.ejs_key)) out[who + ' email'] = 'EmailJS not configured';
         else await fetch('https://api.emailjs.com/api/v1.0/email/send', {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -165,7 +165,7 @@
         const s = settings(), a = Math.floor(now() / 900) * 900;
         if (Array.isArray(body.only)) {
           s.recipients = s.recipients.filter((r, i) => body.only.includes(i));
-          if (!s.recipients.length) throw new Error('tick Test next to at least one recipient');
+          if (!s.recipients.length) throw new Error('select at least one recipient');
         }  // example: daily message for the published prices from now on
         const text = '✅ Test message from Electricity Finland. Example of the daily message:\n' + (dailyMessage(s, rows('prices', a - 3600), a, a + 86400) || '(no published prices yet)');
         return notify(s, text, body.channel || 'all');
