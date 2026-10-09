@@ -9,7 +9,7 @@
     vat: 25.5, margin: 0, transfer_day: 0, transfer_night: 0, night_start: 22, night_end: 7, tax: 2.827, other: 0,
     monthly_provider: 0, monthly_transfer: 0, monthly_kwh: 0, spread_monthly: false,
     alarm_basis: 'total', alarm_vat: true, high_on: false, high: 20, low_on: false, low: 2, summary_on: true, ...MSG_DEFAULTS,
-    quiet_start: -1, quiet_end: -1, wa_on: false, email_on: false, recipients: [],
+    wa_on: false, email_on: false, recipients: [],
     ejs_service: '', ejs_template: '', ejs_key: '', fingrid_key: '',
   };
   const get = (k, d) => { try { return JSON.parse(localStorage.getItem('elfi_' + k)) ?? d; } catch { return d; } };
@@ -104,47 +104,14 @@
     return out;
   }
 
-  function inQuiet(s) {
-    const a = s.quiet_start, b = s.quiet_end, h = new Date().getHours();
-    if (a < 0 || b < 0 || a === b) return false;
-    return a > b ? (h >= a || h < b) : (a <= h && h < b);
-  }
-  function checkAlarms(s) {  // one message per new high/low period in the published future prices
-    const sent = Object.fromEntries(Object.entries(get('alarm_sent', {})).filter(([, e]) => e > now()));
-    const list = rows('prices', now() - 3600), msgs = [];
-    for (const kind of ['high', 'low']) {
-      if (!s[kind + '_on']) continue;
-      const fresh = priceWindows(s, list, kind).filter(w => !(`${kind}:${w.start}` in sent));
-      if (!fresh.length || inQuiet(s)) continue;  // in quiet hours the message waits until they end
-      msgs.push(fresh.map(w => fillTemplate(s['msg_' + kind], windowFields(s, kind, w))).join('\n'));
-      fresh.forEach(w => sent[`${kind}:${w.start}`] = w.end);
-    }
-    put('alarm_sent', sent);
-    return msgs;
-  }
-  function windows(list, test) {
-    const out = []; let start = null;
-    list.forEach(([ts, p]) => {
-      if (test(p) && start === null) start = ts;
-      if (!test(p) && start !== null) { out.push(`${hm(start)}–${hm(ts)}`); start = null; }
-    });
-    if (start !== null) out.push(`${hm(start)}–${hm(list.at(-1)[0] + 900)}`);
-    return out.join(', ');
-  }
-  function dailySummary(s) {
-    const d0 = midnight(1), a = d0 / 1000, b = midnight(2) / 1000, key = d0.toDateString();
-    if (!s.summary_on || get('summary_date') === key) return [];
-    const list = rows('prices', a).filter(r => r[0] < b).map(([t, v]) => [t, priceOf(s, t, v)]);
-    if (!list.length || list.at(-1)[0] < b - 3600) return [];
-    put('summary_date', key);
-    const ps = list.map(r => r[1]), lo = list.reduce((x, y) => y[1] < x[1] ? y : x), hi = list.reduce((x, y) => y[1] > x[1] ? y : x);
-    const day = windowFields(s, 'high', { start: a, end: b, ps: [[0, 1]] });
-    let msg = fillTemplate(s.msg_summary, { weekday: day.weekday, date: day.date, avg: (ps.reduce((x, y) => x + y) / ps.length).toFixed(2),
-      min: lo[1].toFixed(2), min_time: hm(lo[0]), max: hi[1].toFixed(2), max_time: hm(hi[0]), basis: alarmBasis(s) });
-    let w;
-    if (s.high_on && (w = windows(list, p => p >= s.high))) msg += `\n🔴 ≥${s.high}: ${w}`;
-    if (s.low_on && (w = windows(list, p => p <= s.low))) msg += `\n🟢 ≤${s.low}: ${w}`;
-    return [msg];
+  function dailyAlarm(s) {  // once a day from 14:00: the fixed prices from 14:00 today to 14:00 tomorrow
+    const d = new Date(); if (d.getHours() < 14) return [];
+    d.setHours(14, 0, 0, 0);
+    const a = d / 1000, b = a + 86400, key = d.toDateString(), list = rows('prices', a - 3600);
+    if (get('daily_sent') === key || !list.length || list.at(-1)[0] < b - 900) return [];
+    put('daily_sent', key);
+    const msg = dailyMessage(s, list, a, b);
+    return msg ? [msg] : [];
   }
 
   const last = { p: 0, f: 0, h: 0 };
@@ -162,7 +129,7 @@
     if (t - last.h > 86400) { last.h = t; await track('history', backfill); changed = true; }
     if (changed) { persist(); if (!document.querySelector('#main.hidden')) window.load?.(); }
     const s = settings();
-    for (const m of [...checkAlarms(s), ...dailySummary(s)]) await notify(s, m);
+    for (const m of dailyAlarm(s)) await notify(s, m);
   }
 
   function data(daysBack) {
@@ -195,8 +162,8 @@
         return s;
       }
       if (p === 'test-notify') {
-        const s = settings(), t = Math.floor(now() / 900) * 900 + 7200;
-        const text = '✅ Test message from Electricity Finland. Example alarm:\n' + fillTemplate(s.msg_high, windowFields(s, 'high', { start: t, end: t + 5400, ps: [[s.high + 1.5, 5400]] }));
+        const s = settings(), a = Math.floor(now() / 900) * 900;  // example: daily message for the published prices from now on
+        const text = '✅ Test message from Electricity Finland. Example of the daily message:\n' + (dailyMessage(s, rows('prices', a - 3600), a, a + 86400) || '(no published prices yet)');
         return notify(s, text, body.channel || 'all');
       }
       return { ok: true };

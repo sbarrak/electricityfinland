@@ -123,3 +123,10 @@ dialog .preview{margin:0 0 6px}
 @media (max-width:600px){.toolbar .right{margin-left:0}}
 .stat small{padding-right:26px}
 .grid .sw input{width:20px;flex:none}
+/* v4: blue = published up to now, green = fixed future, orange = estimate; red/green limits */
+:root{--fixed:#16a34a;--fixed-bg:rgba(22,163,74,.10);--est:#ea580c;--lo:#16a34a}
+@media (prefers-color-scheme:dark){:root{--fixed:#4ade80;--fixed-bg:rgba(74,222,128,.10);--est:#fb923c;--lo:#4ade80}}
+.alarmbar .sw.hi span{color:var(--hi);font-weight:600}
+.alarmbar .sw.lo span{color:var(--lo);font-weight:600}
+.alarmbar .sw.hi input{accent-color:var(--hi)}
+.alarmbar .sw.lo input{accent-color:var(--lo)}

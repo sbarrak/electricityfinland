@@ -19,8 +19,7 @@ const FIELDS = {
     ['tax', 'Electricity tax + supply fee'], ['other', 'Other per kWh'], ['vat', 'VAT %']],
   monthly: [['monthly_provider', 'Provider monthly fee €'], ['monthly_transfer', 'Transfer monthly fee €'],
     ['monthly_kwh', 'Monthly consumption kWh'], ['spread_monthly', 'Spread monthly fees into total c/kWh', 'cb']],
-  notif: [['quiet_start', 'Quiet from hour (-1 off)', 1], ['quiet_end', 'Quiet until hour', 1],
-    ['summary_on', "Daily summary when tomorrow's prices publish", 'cb']],
+  notif: [['summary_on', 'Start the daily 14:00 message with a price summary (average, min, max)', 'cb']],
   smtp: LOCAL ? LOCAL.fields : [['smtp_host', 'Server', 'text'], ['smtp_port', 'Port', 1], ['smtp_security', 'Security', ['starttls', 'ssl', 'none']],
     ['smtp_user', 'Username', 'text'], ['smtp_pass', 'Password', 'password'], ['smtp_from', 'From address (optional)', 'email'],
     ['smtp_verify', 'Verify server certificate', 'cb']],
@@ -75,20 +74,15 @@ function refreshValues() { if (!D) return; renderCards(); renderBreakdown(); buc
 let saveTimer = null;
 const saveNow = async () => {
   clearTimeout(saveTimer); saveTimer = null;
-  await putSettings(readFields($('#settings')));
+  await putSettings({ ...readFields($('#alarmbar')), ...readFields($('#settings')) });
   monthlyInfo(); refreshValues();
 };
 const autosave = () => {
   clearTimeout(saveTimer);
   saveTimer = setTimeout(() => saveNow().then(() => flash('Saved ✓'), e => flash('Not saved: ' + e.message)), 400);
 };
-$('#settings').addEventListener('input', autosave);
-$('#settings').addEventListener('change', autosave);
+for (const root of [$('#alarmbar'), $('#settings')]) ['input', 'change'].forEach(ev => root.addEventListener(ev, autosave));
 $('#recips').addEventListener('click', e => e.target.classList.contains('del') && autosave());
-
-$$('.save').forEach(b => b.onclick = async () => {  // alarm limits above the chart
-  try { await putSettings(readFields($('#alarmbar'))); flash('Alarm settings saved ✓'); build(); } catch (e) { flash('Error: ' + e.message); }
-});
 $$('.test').forEach(b => b.onclick = async () => {
   const out = t => $$('.testOut').forEach(el => el.textContent = t);
   out('Sending…');
@@ -104,7 +98,8 @@ const dlg = $('#msgDialog');
 $('#phAlarm').textContent = TEMPLATE_FIELDS.alarm.map(f => `{${f}}`).join(' ');
 $('#phSummary').textContent = TEMPLATE_FIELDS.summary.map(f => `{${f}}`).join(' ');
 function sampleFields(k) {
-  if (k === 'msg_summary') return { weekday: 'Sat', date: '11.10.', avg: '8.40', min: '1.20', min_time: '03:00', max: '21.70', max_time: '18:00', basis: alarmBasis(S) };
+  if (k === 'msg_summary') return { from: 'Fri 10.10. 14:00', to: 'Sat 11.10. 14:00', avg: '8.40', min: '1.20', min_time: 'Sat 11.10. 03:00',
+    max: '21.70', max_time: 'Fri 10.10. 18:00', basis: alarmBasis(S), weekday: 'Fri', date: '10.10.' };
   const kind = k === 'msg_high' ? 'high' : 'low', t = Math.floor(Date.now() / 9e5) * 900 + 7200;
   return windowFields(S, kind, { start: t, end: t + 5400, ps: [[kind === 'high' ? S.high + 1.5 : S.low - 0.5, 5400]] });
 }
@@ -279,16 +274,14 @@ const zoomX = (f, c = (view.min + view.max) / 2) => zoomTo((view.max - view.min)
 
 function series() {
   const la = lastActual(), price = (label, rows, color, extra) => ({ label, rows, kind: 'price', borderColor: color, ...extra });
-  const segColor = ctx => {
-    const y = ctx.p0.parsed.y;
-    return showThr() && S.high_on && y >= S.high ? css('--hi') : showThr() && S.low_on && y <= S.low ? css('--lo') : css('--accent');
-  };
+  const slot = Math.floor(Date.now() / 9e5) * 900;  // start of the current 15-min slot
   const list = tab === 'compare' ? [
     price('Actual c/kWh', D.actual, css('--accent')),
     price('Estimate before publish c/kWh', D.forecast.filter(r => r[0] <= la), css('--est'), { borderDash: [6, 4] }),
   ] : [
-    price('Price c/kWh', D.actual, css('--accent'), { fill: 'origin', backgroundColor: css('--accent-bg'), segment: { borderColor: segColor } }),
-    price('Estimate c/kWh', D.forecast.filter(r => r[0] > la), css('--est'), { borderDash: [6, 4] }),
+    price('Price c/kWh', D.actual.filter(r => r[0] <= slot), css('--accent'), { fill: 'origin', backgroundColor: css('--accent-bg') }),
+    price('Fixed future price c/kWh', D.actual.filter(r => r[0] >= slot), css('--fixed'), { fill: 'origin', backgroundColor: css('--fixed-bg') }),
+    price('Estimate (not fixed) c/kWh', D.forecast.filter(r => r[0] > la), css('--est'), { borderDash: [6, 4] }),
     { label: 'Wind forecast MW', rows: D.wind, kind: 'wind', borderColor: css('--wind'), backgroundColor: css('--wind-bg'), fill: 'origin', tension: .3 },
     { label: 'Wind actual MW', rows: D.wind_actual, kind: 'wind', borderColor: css('--wind-act') },
   ];
@@ -325,7 +318,12 @@ const overlay = {
     const hline = (v, color, label) => {
       const py = y.getPixelForValue(v); if (py < top || py > bottom) return;
       g.strokeStyle = g.fillStyle = color; g.setLineDash([4, 4]); g.beginPath(); g.moveTo(left, py); g.lineTo(right, py); g.stroke();
-      if (label) { g.setLineDash([]); g.font = '11px sans-serif'; g.fillText(label, left + 4, py - 4); }
+      if (label) {
+        g.setLineDash([]); g.font = '600 12px sans-serif';
+        const w = g.measureText(label).width + 10;
+        g.fillStyle = '#fde047'; g.fillRect(left + 4, py - 18, w, 16);
+        g.fillStyle = '#111827'; g.fillText(label, left + 9, py - 6);
+      }
     };
     g.save(); g.lineWidth = 1;
     if (view.max - view.min <= 14 * DAY) {  // day separators
@@ -378,7 +376,7 @@ function build() {
   });
   $('#legend').textContent = tab === 'compare'
     ? '· solid = published day-ahead price · dashed = estimate made before the price was published'
-    : '· solid = published Nord Pool day-ahead price · dashed = estimate · blue = wind power MW';
+    : '· blue = published price up to now · green = published future price (fixed) · orange dashed = estimate (not fixed) · cyan = wind power MW';
   bucket = null;
   setView(view.min, view.max);
   status();

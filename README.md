@@ -7,20 +7,19 @@ Self-hosted monitor for Finnish electricity spot prices (Nord Pool day-ahead, 15
   - Zoom: pinch on the trackpad (or Ctrl + mouse wheel), pinch on iPad/iPhone, or the − / + buttons (⇔ time, ⇕ price). **Reset** returns to the default view.
   - Move: scroll bars under and beside the chart, two-finger swipe on the trackpad, or drag sideways on a touch screen.
   - **From / To** dates and presets (last week, month, 3 months, year). **Average** shows the average price of the visible period as a line.
-  - **Spot / Total cost** buttons with an **Incl. VAT** checkbox. Published prices are blue (red above your limit, violet below it); estimates are dashed green.
+  - **Spot / Total cost** buttons with an **Incl. VAT** checkbox. Colours: **blue** = published price up to now, **green** = published future price (fixed), **orange dashed** = estimate (not fixed yet). Red / green dashed lines = your high / low limits. The Average value has a yellow label.
   - Click a point to see its **price breakdown** (spot, VAT, margin, transfer, tax, monthly fees) in the box next to Monthly fees.
   - **Estimate vs actual** checkbox adds a tab comparing the estimate made *before* the price was published with the real price, with the average error.
 - **⟳ Refresh prices** fetches the latest prices immediately. Up to a year of past prices is loaded from [sahkotin.fi](https://sahkotin.fi).
 - **Login**: the first login is `admin` / `admin`; you must then pick your own username and password (Account button to change it later).
-- **Alarms** (row above the chart): only the published, already agreed future prices are checked. You get one message per period above the high / below the low limit, with the price, date and time and duration, e.g. `🔴 High price 25.40 c/kWh · Fri 10.10. 17:00–19:15 (2 h 15 min) · limit 20`. During quiet hours the message waits until they end.
-- **Customizable messages** (✉ Message): edit the high, low and daily-summary texts with placeholders like `{price}`, `{date}`, `{time}`, `{end}`, `{duration}`, `{limit}`, with a live example. Save or Cancel closes the window.
+- **Alarms** (row above the chart, saved automatically): Nord Pool fixes the next day's prices around 13:45, so **one message per day is sent between 14:00 and 14:05** with the fixed prices from 14:00 to 14:00 the next day. It starts with a summary and lists every time the price goes **up to or above the high limit** or **down to or below the low limit**, with the price, day and time and how long it lasts, e.g. `🔴 High price 25.40 c/kWh · Sat 11.10. 17:00–19:15 (2 h 15 min) · limit 20`. If the prices are published late, the message is sent as soon as they arrive.
+- **Customizable messages** (✉ Customize messages, under Recipients): edit the high, low and daily-summary texts with placeholders like `{price}`, `{date}`, `{time}`, `{end}`, `{duration}`, `{limit}`, with a live example. Save or Cancel closes the window.
 - **Cards** with an ⓘ button explaining each value; a Transfer card shows the current transfer fee + tax.
 - Costs, monthly fees, recipients and email server settings are **saved automatically** while you type.
 - **Several recipients**, each with their own WhatsApp number (CallMeBot key) and/or email. Test buttons for all, WhatsApp only and email only.
 - **Email server menu** for your SMTP relay (server, port, STARTTLS/SSL, username, password) with a test button.
-- **Chart**: published Nord Pool day-ahead prices (solid), estimated prices beyond tomorrow (dashed), wind power forecast + actuals (MW, right axis), "now" line and alarm thresholds. Bars turn red/green when above/below your thresholds.
+- **Chart** also shows wind power forecast + actuals (MW, right axis) and a "now" line.
 - Total cost = spot + VAT + provider margin + transfer (day/night) + electricity tax + other, optionally plus monthly fees spread per kWh.
-- **Daily summary** when tomorrow's prices are published (~14:00) listing the hours above/below your limits.
 - **Notifications**: WhatsApp (free, via CallMeBot) and email (your own SMTP, e.g. Synology Mail Server).
 - Responsive layout for iPhone, iPad and desktop; light/dark mode; password login.
 

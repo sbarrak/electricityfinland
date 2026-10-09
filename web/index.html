@@ -7,7 +7,7 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="theme-color" content="#0f172a">
 <title>Electricity Finland</title>
-<link rel="stylesheet" href="style.css?v=4">
+<link rel="stylesheet" href="style.css?v=5">
 </head>
 <body>
 <div id="fatal" class="fatal hidden"></div>
@@ -60,16 +60,14 @@
     </div>
     <div class="toolbar alarmbar" id="alarmbar">
       <span class="tlabel">Alarms</span>
-      <label class="sw"><input type="checkbox" data-k="high_on"><span>🔴 Above</span></label>
+      <label class="sw hi"><input type="checkbox" data-k="high_on"><span>🔴 Above</span></label>
       <input type="number" step="0.1" data-k="high" inputmode="decimal"><span class="u">c/kWh</span>
-      <label class="sw"><input type="checkbox" data-k="low_on"><span>🟣 Below</span></label>
+      <label class="sw lo"><input type="checkbox" data-k="low_on"><span>🟢 Below</span></label>
       <input type="number" step="0.1" data-k="low" inputmode="decimal"><span class="u">c/kWh</span>
       <select data-k="alarm_basis"><option value="total">on total cost</option><option value="spot">on spot</option></select>
       <label class="sw"><input type="checkbox" data-k="alarm_vat"><span>incl. VAT</span></label>
       <label class="sw"><input type="checkbox" data-k="wa_on"><span>WhatsApp</span></label>
       <label class="sw"><input type="checkbox" data-k="email_on"><span>Email</span></label>
-      <button type="button" class="ghost openMsg">✉ Message</button>
-      <div class="right"><button class="save" type="button">Save</button></div>
     </div>
     <div class="toolbar">
       <select id="preset">
@@ -131,11 +129,12 @@
   <form method="dialog" id="msgForm">
     <h2>Alarm messages</h2>
     <p class="hint">Placeholders: <code id="phAlarm"></code><br>Daily summary: <code id="phSummary"></code></p>
-    <label>Price above the limit<textarea data-m="msg_high" rows="2"></textarea></label>
+    <p class="hint">One message is sent every day between 14:00 and 14:05 with the fixed prices from 14:00 to 14:00 the next day: the summary, then one line for each time the price goes up to the high limit or down to the low limit.</p>
+    <label>Price goes up to or above the high limit<textarea data-m="msg_high" rows="2"></textarea></label>
     <p class="hint preview" data-p="msg_high"></p>
-    <label>Price below the limit<textarea data-m="msg_low" rows="2"></textarea></label>
+    <label>Price goes down to or below the low limit<textarea data-m="msg_low" rows="2"></textarea></label>
     <p class="hint preview" data-p="msg_low"></p>
-    <label>Daily summary (when tomorrow's prices are published)<textarea data-m="msg_summary" rows="2"></textarea></label>
+    <label>Summary at the top of the daily message<textarea data-m="msg_summary" rows="2"></textarea></label>
     <p class="hint preview" data-p="msg_summary"></p>
     <div class="dlgbtns">
       <button type="button" class="ghost" id="msgDefaults">Restore defaults</button>
@@ -149,8 +148,8 @@
 
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns@3.0.0/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
-<script src="costs.js?v=4"></script>
-<script src="local.js?v=4"></script>
-<script src="app.js?v=4"></script>
+<script src="costs.js?v=5"></script>
+<script src="local.js?v=5"></script>
+<script src="app.js?v=5"></script>
 </body>
 </html>

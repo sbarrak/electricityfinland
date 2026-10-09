@@ -34,12 +34,12 @@ DEFAULTS = {
     "night_start": 22, "night_end": 7, "tax": 2.827, "other": 0.0,
     "monthly_provider": 0.0, "monthly_transfer": 0.0, "monthly_kwh": 0.0, "spread_monthly": False,
     "alarm_basis": "total", "alarm_vat": True, "high_on": False, "high": 20.0, "low_on": False, "low": 2.0,
-    "summary_on": True, "quiet_start": -1, "quiet_end": -1,
+    "summary_on": True,
     "wa_on": False, "email_on": False, "recipients": [],
     # message templates, placeholders: see fill() / web/costs.js
     "msg_high": "🔴 High price {price} c/kWh · {weekday} {date} {time}–{end} ({duration}) · limit {limit}",
     "msg_low": "🟢 Low price {price} c/kWh · {weekday} {date} {time}–{end} ({duration}) · limit {limit}",
-    "msg_summary": "📅 Tomorrow {weekday} {date}: avg {avg}, min {min} at {min_time}, max {max} at {max_time} c/kWh ({basis})",
+    "msg_summary": "📅 Prices {from} – {to}: avg {avg}, min {min} at {min_time}, max {max} at {max_time} c/kWh ({basis})",
     # email server (SMTP relay); SMTP_* env vars are used when a field is empty
     "smtp_host": env("host", "mail.laseleka.com"), "smtp_port": int(env("port", "587") or 587),
     "smtp_security": env("security", "starttls"), "smtp_verify": env("verify", "true").lower() != "false",
@@ -220,13 +220,6 @@ async def notify(c, s, text, force=None):
 
 
 # ---------------------------------------------------------------- alarms
-def in_quiet(s):
-    a, b, h = s["quiet_start"], s["quiet_end"], datetime.now(TZ).hour
-    if a < 0 or b < 0 or a == b:
-        return False
-    return (h >= a or h < b) if a > b else (a <= h < b)
-
-
 def price_of(s, ts, spot):
     return value(s, ts, spot, s["alarm_basis"], s["alarm_vat"])
 
@@ -252,23 +245,12 @@ def duration(sec):
     return f"{h} h {m} min" if h and m else f"{h} h" if h else f"{m} min"
 
 
-def price_windows(s, kind):
-    """Contiguous periods of published prices (not ended yet) above the high / below the low limit."""
-    now, out, cur = time.time(), [], None
-    rows = db.execute("SELECT ts, spot FROM prices WHERE ts>=? ORDER BY ts", (now - 3600,)).fetchall()
-    for i, (t, v) in enumerate(rows):
-        step = min(3600, rows[i + 1][0] - t) if i + 1 < len(rows) else 900
-        p = price_of(s, t, v)
-        if t + step <= now or not (p >= s["high"] if kind == "high" else p <= s["low"]):
-            cur = None
-            continue
-        if cur and cur["end"] == t:
-            cur["end"] = t + step
-            cur["ps"].append((p, step))
-        else:
-            cur = {"start": t, "end": t + step, "ps": [(p, step)]}
-            out.append(cur)
-    return out
+SEND_HOUR = 14  # Nord Pool publishes the next day around 13:45 Finnish time
+
+
+def daystamp(ts):
+    d = datetime.fromtimestamp(ts, TZ)
+    return f"{WEEKDAYS[d.weekday()]} {d:%d.%m.} {d:%H:%M}"
 
 
 def window_fields(s, kind, w):
@@ -277,58 +259,61 @@ def window_fields(s, kind, w):
     return {"price": f"{(max(ps) if kind == 'high' else min(ps)):.2f}",
             "avg": f"{sum(p * n for p, n in w['ps']) / sum(n for _, n in w['ps']):.2f}",
             "date": d.strftime("%d.%m."), "weekday": WEEKDAYS[d.weekday()], "time": fmt(w["start"]), "end": fmt(w["end"]),
-            "duration": duration(w["end"] - w["start"]), "limit": s[kind], "basis": basis(s)}
+            "duration": duration(w["end"] - w["start"]), "limit": f"{s[kind]:g}", "basis": basis(s)}
 
 
-def check_alarms(s):
-    """One message per new high/low period found in the published (already agreed) future prices."""
-    sent = {k: e for k, e in kv_get("alarm_sent", {}).items() if e > time.time()}
-    msgs = []
-    for kind in ("high", "low"):
-        if not s[kind + "_on"]:
+def daily_message(s, rows, a, b):
+    """Message for the fixed prices a..b: a summary line plus one line per crossing.
+    High: price goes from below the limit to >= limit. Low: price goes from above the limit to <= limit.
+    Mirrors dailyMessage() in web/costs.js."""
+    pts = []
+    for i, (t, v) in enumerate(rows):
+        step = min(3600, rows[i + 1][0] - t) if i + 1 < len(rows) else 900
+        pts.append((t, price_of(s, t, v), step))
+    hit = {"high": lambda p: p >= s["high"], "low": lambda p: p <= s["low"]}
+    lines = []
+    for i in range(1, len(pts)):
+        if not a <= pts[i][0] < b:
             continue
-        new = [w for w in price_windows(s, kind) if f"{kind}:{w['start']}" not in sent]
-        if not new or in_quiet(s):  # in quiet hours the message waits until they end
-            continue
-        msgs.append("\n".join(fill(s["msg_" + kind], window_fields(s, kind, w)) for w in new))
-        sent.update({f"{kind}:{w['start']}": w["end"] for w in new})
-    kv_set("alarm_sent", sent)
-    return msgs
+        for kind in ("high", "low"):
+            if s[kind + "_on"] and hit[kind](pts[i][1]) and not hit[kind](pts[i - 1][1]):
+                j, ps = i, []
+                while j < len(pts) and hit[kind](pts[j][1]):
+                    ps.append((pts[j][1], pts[j][2]))
+                    j += 1
+                end = pts[j][0] if j < len(pts) else pts[-1][0] + pts[-1][2]
+                lines.append((pts[i][0], fill(s["msg_" + kind], window_fields(s, kind, {"start": pts[i][0], "end": end, "ps": ps}))))
+    out = []
+    day = [p for p in pts if a <= p[0] < b]
+    if s["summary_on"] and day:
+        lo, hi = min(day, key=lambda r: r[1]), max(day, key=lambda r: r[1])
+        avg = sum(p * n for _, p, n in day) / sum(n for *_, n in day)
+        out.append(fill(s["msg_summary"], {"from": daystamp(a), "to": daystamp(b), "avg": f"{avg:.2f}",
+                                           "min": f"{lo[1]:.2f}", "min_time": daystamp(lo[0]), "max": f"{hi[1]:.2f}",
+                                           "max_time": daystamp(hi[0]), "basis": basis(s),
+                                           "weekday": WEEKDAYS[datetime.fromtimestamp(a, TZ).weekday()],
+                                           "date": datetime.fromtimestamp(a, TZ).strftime("%d.%m.")}))
+        if (s["high_on"] or s["low_on"]) and not lines:
+            out.append("No crossings of your limits.")
+    out += [text for _, text in sorted(lines)]
+    return "\n".join(out)
 
 
-def windows(rows, test):
-    out, start, prev = [], None, None
-    for ts, p in rows:
-        if test(p) and start is None:
-            start = ts
-        if not test(p) and start is not None:
-            out.append(f"{fmt(start)}–{fmt(ts)}")
-            start = None
-        prev = ts
-    if start is not None:
-        out.append(f"{fmt(start)}–{fmt(prev + 900)}")
-    return ", ".join(out)
-
-
-def daily_summary(s):
-    day0 = datetime.now(TZ).replace(hour=0, minute=0, second=0, microsecond=0) + timedelta(days=1)
-    a, b, key = int(day0.timestamp()), int((day0 + timedelta(days=1)).timestamp()), day0.date().isoformat()
-    if not s["summary_on"] or kv_get("summary_date") == key:
+def daily_alarm(s):
+    """Once a day from 14:00 (normally 14:00–14:05): the fixed prices from 14:00 today to 14:00 tomorrow."""
+    now = datetime.now(TZ)
+    if now.hour < SEND_HOUR:
         return []
-    rows = [(t, price_of(s, t, v)) for t, v in db.execute("SELECT ts, spot FROM prices WHERE ts>=? AND ts<? ORDER BY ts", (a, b))]
-    if not rows or rows[-1][0] < b - 3600:
+    start = now.replace(hour=SEND_HOUR, minute=0, second=0, microsecond=0)
+    a, b, key = int(start.timestamp()), int((start + timedelta(days=1)).timestamp()), start.date().isoformat()
+    if kv_get("daily_sent") == key:
         return []
-    kv_set("summary_date", key)
-    ps = [p for _, p in rows]
-    lo, hi = min(rows, key=lambda r: r[1]), max(rows, key=lambda r: r[1])
-    msg = fill(s["msg_summary"], {"date": day0.strftime("%d.%m."), "weekday": WEEKDAYS[day0.weekday()],
-                                  "avg": f"{sum(ps) / len(ps):.2f}", "min": f"{lo[1]:.2f}", "min_time": fmt(lo[0]),
-                                  "max": f"{hi[1]:.2f}", "max_time": fmt(hi[0]), "basis": basis(s)})
-    if s["high_on"] and (w := windows(rows, lambda p: p >= s["high"])):
-        msg += f"\n🔴 ≥{s['high']}: {w}"
-    if s["low_on"] and (w := windows(rows, lambda p: p <= s["low"])):
-        msg += f"\n🟢 ≤{s['low']}: {w}"
-    return [msg]
+    rows = db.execute("SELECT ts, spot FROM prices WHERE ts>=? ORDER BY ts", (a - 3600,)).fetchall()
+    if not rows or rows[-1][0] < b - 900:  # next day not published yet
+        return []
+    kv_set("daily_sent", key)
+    msg = daily_message(s, rows, a, b)
+    return [msg] if msg else []
 
 
 def has_tomorrow():
@@ -354,7 +339,7 @@ async def worker():
                         last[k] = now - every + 300  # retry in 5 min
             try:
                 s = settings()
-                for m in check_alarms(s) + daily_summary(s):
+                for m in daily_alarm(s):
                     await notify(c, s, m)
             except Exception:
                 log.exception("alarm check failed")
@@ -515,8 +500,9 @@ async def test_notify(body: dict | None = None):
         raise HTTPException(400, "channel must be all, whatsapp or email")
     async with httpx.AsyncClient(timeout=30) as c:
         s = settings()
-        sample = {"start": int(time.time() // 900 * 900) + 7200, "end": int(time.time() // 900 * 900) + 7200 + 5400, "ps": [(s["high"] + 1.5, 5400)]}
-        text = "✅ Test message from Electricity Finland. Example alarm:\n" + fill(s["msg_high"], window_fields(s, "high", sample))
+        a = int(time.time() // 900 * 900)  # example: the daily message for the published prices from now on
+        rows = db.execute("SELECT ts, spot FROM prices WHERE ts>=? ORDER BY ts", (a - 3600,)).fetchall()
+        text = "✅ Test message from Electricity Finland. Example of the daily message:\n" + (daily_message(s, rows, a, a + 86400) or "(no published prices yet)")
         return await notify(c, s, text, force=channel)
 
 
