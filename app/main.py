@@ -1,7 +1,7 @@
 """Electricity Finland: spot price + wind monitor with WhatsApp/email alarms."""
 import asyncio, hashlib, hmac, json, logging, os, re, smtplib, sqlite3, ssl, time
 from contextlib import asynccontextmanager
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from email.message import EmailMessage
 from pathlib import Path
 from zoneinfo import ZoneInfo
@@ -141,12 +141,12 @@ BACKFILLED_FROM = [time.time()]  # oldest start already requested from sahkotin.
 
 
 async def backfill(c, days=HISTORY_DAYS):
-    """Load hourly history (sahkotin.fi, EUR/MWh excl. VAT) back `days` days without overwriting 15-min data."""
+    """Load hourly history (sahkotin.fi, EUR/MWh excl. VAT) back `days` days without overwriting 15-min data. Returns the rows added, -1 if nothing was needed."""
     first = db.execute("SELECT MIN(ts) FROM prices").fetchone()[0] or time.time()
     start = time.time() - min(days, MAX_HISTORY_DAYS) * 86400
     if first - start < 2 * 86400 or start >= BACKFILLED_FROM[0]:
-        return 0
-    iso = lambda t: datetime.fromtimestamp(t, TZ).isoformat()
+        return -1  # nothing to fetch
+    iso = lambda t: datetime.fromtimestamp(int(t), timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.000Z")
     total, end = 0, first
     while end - start > 3600:  # one request per year of data
         a = max(start, end - HISTORY_DAYS * 86400)
@@ -156,7 +156,8 @@ async def backfill(c, days=HISTORY_DAYS):
         db.executemany("INSERT OR IGNORE INTO prices VALUES(?,?)", rows)
         db.commit()
         total, end = total + len(rows), a
-    BACKFILLED_FROM[0] = start
+    if total:  # nothing at all is suspicious (source down?): ask again next time
+        BACKFILLED_FROM[0] = start
     log.info("history backfill: %d rows", total)
     return total
 

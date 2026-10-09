@@ -57,14 +57,16 @@
   }
   async function backfill(days = HISTORY_DAYS) {  // hourly history back `days` days, without overwriting 15-min data
     const first = Math.min(now(), keyRange('prices')[0]), start = now() - Math.min(days, MAX_HISTORY_DAYS) * 86400;
-    if (first - start < 2 * 86400 || start >= backfilledFrom) return;  // covered, or already asked for
+    if (first - start < 2 * 86400 || start >= backfilledFrom) return -1;  // covered, or already asked for
     const iso = t => new Date(t * 1000).toISOString();
+    let total = 0;
     for (let end = first; end - start > 3600; end -= HISTORY_DAYS * 86400) {  // one request per year of data
       const a = Math.max(start, end - HISTORY_DAYS * 86400);
       const r = await json(`https://sahkotin.fi/prices?start=${iso(a)}&end=${iso(end)}`);
-      r.prices.forEach(x => { const t = tsOf(x.date); if (!(t in db.prices)) db.prices[t] = x.value / 10; });
+      r.prices.forEach(x => { const t = tsOf(x.date); if (!(t in db.prices)) { db.prices[t] = x.value / 10; total++; } });
     }
-    backfilledFrom = start;
+    if (total) backfilledFrom = start;  // nothing at all is suspicious (source down?): ask again next time
+    return total;
   }
   async function fetchForecasts() {
     const last = lastPrice();  // keep estimates as they were before the price was published
@@ -154,7 +156,7 @@
       const [p, q] = path.split('?'), body = opts.body ? JSON.parse(opts.body) : {};
       if (p === 'me') return { username: 'local', must_change: false };
       if (p === 'data') return data(+new URLSearchParams(q).get('days_back') || 60);
-      if (p === 'history') { await backfill(+body.days || 0); persist(); return { ok: true }; }
+      if (p === 'history') { const rows = await backfill(+body.days || 0); persist(); return { rows: rows }; }
       if (p === 'refresh') return body.auto && now() - last.p < 120 ? { prices: 'up to date' } : refresh(false);
       if (p === 'settings' && opts.method === 'PUT') {
         const s = settings();

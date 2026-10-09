@@ -240,10 +240,12 @@ async function showRange(min, max) {
   const need = Math.ceil((Date.now() - min) / DAY) + 1;
   if (need > loadedDays) {  // the period reaches further back than what is loaded: fetch it from the source first
     const days = Math.min(MAX_DAYS, need);
-    flash('Loading prices for the selected period…');
-    try { await api('history', { method: 'POST', body: JSON.stringify({ days }) }); }
-    catch (e) { flash('Cannot fetch older prices: ' + e.message); }
+    $('#status').textContent = 'Loading prices for the selected period…';
+    let note = '';
+    try { const r = await api('history', { method: 'POST', body: JSON.stringify({ days }) }); if (r.rows === 0) note = 'No older prices were returned by the source.'; }
+    catch (e) { note = 'Cannot fetch older prices: ' + e.message; }
     await load(days);
+    if (note) { flash(note); clearTimeout(flash.t); flash.t = setTimeout(status, 20000); }
   }
   setView(min, max);
 }
@@ -279,7 +281,7 @@ async function load(days = loadedDays) {
 const css = v => getComputedStyle(document.body).getPropertyValue(v).trim();
 const hm = d => new Date(d).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
 const WD = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
-const dayFmt = ms => { const d = new Date(ms); return `${WD[d.getDay()]} ${d.getDate()}.${d.getMonth() + 1}.`; };
+const dayFmt = ms => { const d = new Date(ms); return `${WD[d.getDay()]} ${d.getDate()}.${d.getMonth() + 1}.${d.getFullYear()}`; };
 const fmt = v => v == null || !isFinite(v) ? '–' : v.toFixed(2);
 const val = r => priceValue(S, r[0], r[1], mode, vat);
 const lastActual = () => D.actual.length ? D.actual.at(-1)[0] : 0;
@@ -332,25 +334,26 @@ function series() {
 }
 
 function makeTicks(min, max, width) {
-  const H = (max - min) / 36e5, n = Math.max(2, width / 46);
-  tickStep = [0.25, 0.5, 1, 2, 3, 6, 12, 24, 48, 168, 720].find(s => H / s <= n) || 720;  // 15 min … daily … monthly
+  const H = (max - min) / 36e5, n = s => Math.max(2, width / (s >= 24 ? 96 : 46));  // daily labels are wider (weekday, date, year)
+  tickStep = [0.25, 0.5, 1, 2, 3, 6, 12, 24, 48, 168, 720, 2160, 4320, 8640].find(s => H / s <= n(s)) || 8640;  // 15 min … daily … monthly … yearly
+  const months = tickStep >= 720 ? Math.round(tickStep / 720) : 0;  // month steps: 1, 3, 6, 12
   const d = new Date(min); d.setSeconds(0, 0);
   if (tickStep < 1) d.setMinutes(Math.floor(d.getMinutes() / (tickStep * 60)) * tickStep * 60);
   else {
     d.setMinutes(0);
-    if (tickStep === 720) d.setDate(1);
+    if (months) { d.setDate(1); d.setMonth(Math.floor(d.getMonth() / months) * months); }
     if (tickStep >= 24) d.setHours(0); else d.setHours(Math.floor(d.getHours() / tickStep) * tickStep);
   }
   const out = [];
   for (let i = 0; +d <= max && i < 400; i++) {
     if (+d >= min) out.push({ value: +d });
-    if (tickStep === 720) d.setMonth(d.getMonth() + 1); else if (tickStep >= 24) d.setDate(d.getDate() + tickStep / 24); else d.setMinutes(d.getMinutes() + tickStep * 60);
+    if (months) d.setMonth(d.getMonth() + months); else if (tickStep >= 24) d.setDate(d.getDate() + tickStep / 24); else d.setMinutes(d.getMinutes() + tickStep * 60);
   }
   return out;
 }
 function tickLabel(value, i, ticks) {
   const d = new Date(value);
-  if (tickStep === 720) return d.toLocaleDateString('en-GB', { month: 'short', year: 'numeric' });
+  if (tickStep >= 720) return tickStep === 8640 ? String(d.getFullYear()) : d.toLocaleDateString('en-GB', { month: 'short', year: 'numeric' });
   const p = i ? new Date(ticks[i - 1].value) : null, day = !p || p.toDateString() !== d.toDateString() ? dayFmt(d) : ' ';
   return tickStep >= 24 ? day : [hm(d), day];  // hours on top, day below
 }
@@ -475,6 +478,8 @@ function update() {
     bucket = b;
     for (const d of chart.data.datasets) d.data = agg(d.rows, b, d.kind === 'price' ? val : r => r[1], d.kind === 'price');
   }
+  const markers = span / 1000 / b <= W / 14;  // few enough points in view: draw each data point
+  for (const d of chart.data.datasets) { d.pointRadius = markers ? 2.5 : 0; d.pointBackgroundColor = d.borderColor; }
   avgs = averages();
   Object.assign(chart.options.scales.x, { min: view.min, max: view.max });
   let [lo, hi] = yRange(); lo = Math.floor(lo); hi = Math.ceil(hi);
