@@ -18,6 +18,32 @@ Self-hosted monitor for Finnish electricity spot prices (Nord Pool day-ahead, 15
 
 The estimate is a machine-learning forecast and can be badly off on volatile days; only the solid line is the real price.
 
+## Three ways to run
+| | Docker (NAS) | Local server (test on your computer) | Standalone (double-click) |
+|---|---|---|---|
+| Start | `docker compose up -d` | `run.bat` (Windows) / `./run.sh` (Mac/Linux) | open `ElectricityFinland.html` |
+| Needs | Docker | Python 3.10+ | a browser |
+| Alarms | 24/7 on the server | while the script runs | only while the page is open |
+| Email | your SMTP server (`.env`) | your SMTP server (`.env`) | free [EmailJS](https://www.emailjs.com) account |
+| Login | password | password | none (local only) |
+| Settings stored | SQLite on the NAS | SQLite in `./data` | browser localStorage |
+
+All three use the same `web/` page and the Docker and local server use the same `app/main.py`. Without nginx, the Python app serves `web/` itself. Opened from disk (`file://`), `web/local.js` takes over the backend's job in the browser.
+
+## Local server (no Docker, no nginx)
+Behaves exactly like the NAS version, so it's the best way to test before deploying.
+1. Install [Python 3.10+](https://www.python.org/downloads/) (Windows: tick *Add python.exe to PATH*).
+2. Download the repo and double-click **`run.bat`** (Windows) or run **`./run.sh`** (Mac/Linux).
+3. The first start creates `.env` from `.env.example` and installs dependencies into `.venv`. Your browser then opens http://localhost:8000. Log in with `APP_PASSWORD` from `.env` (default `change-me`; edit `.env` and restart to change it, and to add SMTP / Fingrid settings).
+4. Stop with Ctrl+C or by closing the window. Data is kept in `./data`.
+
+## Standalone (no Docker)
+1. Download the repo (Code → Download ZIP) and unzip.
+2. Double-click **`ElectricityFinland.html`** (Chrome, Edge, Firefox or Safari; needs internet).
+3. Fill in costs/alarms/notifications and Save. Keep the tab open for alarms. Background tabs are checked once a minute, which is enough.
+
+Email in standalone mode: create a free EmailJS account, add an email service (e.g. Gmail/Outlook), and a template with *To* = `{{to_email}}`, subject `{{subject}}`, body `{{message}}`. Enter the service ID, template ID and public key under **Notifications**. If a data source blocks requests from a local file, the footer shows a ⚠ message.
+
 ## Install (Synology / any Docker host)
 ```sh
 git clone https://github.com/sbarrak/electricityfinland.git && cd electricityfinland
@@ -47,7 +73,9 @@ Enter all per-kWh fees in **c/kWh including VAT**, as they appear on Finnish inv
 ```
 docker-compose.yml   nginx (static + /api proxy) + app
 app/main.py          FastAPI: fetchers, cost calc, alarms, notifications, login (SQLite in ./data)
-web/                 index.html, app.js, style.css (Chart.js)
+web/                 index.html, app.js, style.css (Chart.js), local.js (standalone backend)
+ElectricityFinland.html  double-click launcher for standalone mode
+run.bat / run.sh     local server launcher (no Docker/nginx)
 nginx/default.conf
 ```
 Update: `git pull && docker compose up -d --build`.

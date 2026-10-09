@@ -60,7 +60,7 @@
     <details class="card">
       <summary>Notifications</summary>
       <div class="grid" id="notif"></div>
-      <p class="hint">WhatsApp uses <a href="https://www.callmebot.com/blog/free-api-whatsapp-messages/" target="_blank" rel="noopener">CallMeBot</a>: send “I allow callmebot to send me messages” to +34 644 51 95 23 to get your API key. Email uses the SMTP server set in <code>.env</code>.</p>
+      <p class="hint">WhatsApp uses <a href="https://www.callmebot.com/blog/free-api-whatsapp-messages/" target="_blank" rel="noopener">CallMeBot</a>: send “I allow callmebot to send me messages” to +34 644 51 95 23 to get your API key. <span id="emailHint">Email uses the SMTP server set in <code>.env</code>.</span></p>
       <button id="test" class="ghost">Send test message</button> <span id="testOut" class="hint"></span>
     </details>
     <button class="save wide">Save settings</button>
@@ -70,6 +70,7 @@
 
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns@3.0.0/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
+<script src="local.js"></script>
 <script src="app.js"></script>
 </body>
 </html>
