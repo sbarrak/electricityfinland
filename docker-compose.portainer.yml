@@ -1,0 +1,35 @@
+# For Portainer / Synology: everything is pulled from GitHub, nothing needs to be cloned.
+# All persistent data lives in DATA_DIR on the NAS and survives updates:
+#   $DATA_DIR/data    user data (SQLite)
+#   $DATA_DIR/web     web files (refreshed from GitHub on every start)
+#   $DATA_DIR/nginx   nginx config (refreshed from GitHub on every start)
+# Set DATA_DIR (and WEB_PORT) in the stack's environment variables, e.g. DATA_DIR=/volume1/docker/electricity_price
+services:
+  setup:
+    build:
+      context: https://github.com/sbarrak/electricityfinland.git#main
+      dockerfile: setup/Dockerfile
+    restart: "no"
+    volumes:
+      - ${DATA_DIR:-/volume1/docker/electricity_price}/web:/target/web
+      - ${DATA_DIR:-/volume1/docker/electricity_price}/nginx:/target/nginx
+  app:
+    build: https://github.com/sbarrak/electricityfinland.git#main:app
+    restart: unless-stopped
+    env_file:
+      - stack.env
+    volumes:
+      - ${DATA_DIR:-/volume1/docker/electricity_price}/data:/data
+  web:
+    image: nginx:1.27-alpine
+    restart: unless-stopped
+    depends_on:
+      app:
+        condition: service_started
+      setup:
+        condition: service_completed_successfully
+    ports:
+      - "${WEB_PORT:-8088}:80"
+    volumes:
+      - ${DATA_DIR:-/volume1/docker/electricity_price}/nginx/default.conf:/etc/nginx/conf.d/default.conf:ro
+      - ${DATA_DIR:-/volume1/docker/electricity_price}/web:/usr/share/nginx/html:ro

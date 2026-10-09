@@ -68,6 +68,9 @@ docker compose up -d --build
 ```
 Open `http://<nas-ip>:8088`. On Synology you can also do this in **Container Manager → Project → Create** pointing at the folder.
 
+### Portainer (Synology, nothing cloned)
+Create a stack from **`docker-compose.portainer.yml`** (paste it into the Portainer web editor) and add the environment variables from `.env.example` as `stack.env` (or via *Load variables from .env file*), plus `DATA_DIR` (e.g. `/volume1/docker/electricity_price`) and `WEB_PORT`. Everything is pulled from GitHub; a short-lived `setup` container copies the web files and `nginx/default.conf` into `$DATA_DIR/web` and `$DATA_DIR/nginx` on the NAS, and the user data lives in `$DATA_DIR/data`. Nothing is lost on update: re-deploy the stack with *Re-pull image / rebuild* and the web files are refreshed, the data is untouched.
+
 ### Reverse proxy (HTTPS)
 DSM → **Control Panel → Login Portal → Advanced → Reverse Proxy → Create**:
 - Source: `HTTPS`, your hostname (e.g. `power.example.com`), port 443
@@ -94,6 +97,8 @@ Enter all per-kWh fees in **c/kWh including VAT**, as they appear on Finnish inv
 ## Layout
 ```
 docker-compose.yml   nginx (static + /api proxy) + app
+docker-compose.portainer.yml  same for Portainer/Synology: builds from GitHub, keeps data + web files on the NAS
+setup/Dockerfile     one-shot container that copies web/ and nginx config to the NAS folders
 app/main.py          FastAPI: fetchers, cost calc, alarms, notifications, login (SQLite in ./data)
 web/                 index.html, app.js, style.css (Chart.js), local.js (standalone backend)
 ElectricityFinland.html  double-click launcher for standalone mode
