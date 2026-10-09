@@ -4,7 +4,8 @@
 (() => {
   if (location.protocol !== 'file:') return;
   const NPF = 'https://raw.githubusercontent.com/vividfog/nordpool-predict-fi/main/deploy/';
-  const HISTORY_DAYS = 366;
+  const HISTORY_DAYS = 366;  // forecasts and wind are kept this long
+  const MAX_HISTORY_DAYS = 2200;  // published prices are kept and can be loaded this far back on demand
   const DEFAULTS = {
     vat: 25.5, margin: 0, transfer_day: 0, transfer_night: 0, night_start: 22, night_end: 7, tax: 2.827, other: 0,
     monthly_provider: 0, monthly_transfer: 0, monthly_kwh: 0, spread_monthly: false,
@@ -26,6 +27,7 @@
     return s;
   }
   const now = () => Date.now() / 1000;
+  let backfilledFrom = now();  // oldest start already requested from sahkotin.fi
   const tsOf = iso => Math.floor(Date.parse(iso) / 1000);
   const exVat = v => v > 0 ? v / 1.255 : v;  // public feeds include VAT 25.5 %
   const rows = (t, from = 0) => Object.entries(db[t]).map(([k, v]) => [+k, v]).filter(r => r[0] >= from).sort((a, b) => a[0] - b[0]);
@@ -53,12 +55,16 @@
     }
     list.forEach(([t, v]) => db.prices[t] = v);
   }
-  async function backfill() {  // up to a year of hourly history, without overwriting 15-min data
-    const first = Math.min(now(), keyRange('prices')[0]), start = now() - HISTORY_DAYS * 86400;
-    if (first - start < 2 * 86400) return;
+  async function backfill(days = HISTORY_DAYS) {  // hourly history back `days` days, without overwriting 15-min data
+    const first = Math.min(now(), keyRange('prices')[0]), start = now() - Math.min(days, MAX_HISTORY_DAYS) * 86400;
+    if (first - start < 2 * 86400 || start >= backfilledFrom) return;  // covered, or already asked for
     const iso = t => new Date(t * 1000).toISOString();
-    const r = await json(`https://sahkotin.fi/prices?start=${iso(start)}&end=${iso(first)}`);
-    r.prices.forEach(x => { const t = tsOf(x.date); if (!(t in db.prices)) db.prices[t] = x.value / 10; });
+    for (let end = first; end - start > 3600; end -= HISTORY_DAYS * 86400) {  // one request per year of data
+      const a = Math.max(start, end - HISTORY_DAYS * 86400);
+      const r = await json(`https://sahkotin.fi/prices?start=${iso(a)}&end=${iso(end)}`);
+      r.prices.forEach(x => { const t = tsOf(x.date); if (!(t in db.prices)) db.prices[t] = x.value / 10; });
+    }
+    backfilledFrom = start;
   }
   async function fetchForecasts() {
     const last = lastPrice();  // keep estimates as they were before the price was published
@@ -76,8 +82,8 @@
     }
   }
   function persist() {
-    const cutoff = now() - (HISTORY_DAYS + 5) * 86400;
-    TABLES.forEach(t => { for (const k in db[t]) if (+k < cutoff) delete db[t][k]; put(t, db[t]); });
+    const cutoff = now() - (HISTORY_DAYS + 5) * 86400;  // published prices are kept
+    TABLES.forEach(t => { if (t !== 'prices') for (const k in db[t]) if (+k < cutoff) delete db[t][k]; put(t, db[t]); });
   }
 
   async function notify(s, text, force = null) {  // force: null = alarm, 'all' | 'whatsapp' | 'email' = test
@@ -126,14 +132,14 @@
     let changed = false;
     if (t - last.p > (waiting ? 600 : 3600)) { last.p = t; await track('prices', fetchPrices); changed = true; }
     if (t - last.f > 3600) { last.f = t; await track('forecast', fetchForecasts); await track('fingrid', fetchFingrid); changed = true; }
-    if (t - last.h > 86400) { last.h = t; await track('history', backfill); changed = true; }
+    if (t - last.h > 86400) { last.h = t; await track('history', () => backfill()); changed = true; }
     if (changed) { persist(); if (!document.querySelector('#main.hidden')) window.load?.(); }
     const s = settings();
     for (const m of dailyAlarm(s)) await notify(s, m);
   }
 
   function data(daysBack) {
-    const s = settings(), start = now() - Math.max(1, Math.min(daysBack, HISTORY_DAYS)) * 86400;
+    const s = settings(), start = now() - Math.max(1, Math.min(daysBack, MAX_HISTORY_DAYS)) * 86400;
     const fg = rows('wind_fg', start), fgEnd = fg.length ? fg.at(-1)[0] : 0;
     const wind = [...rows('wind_npf', start).filter(r => !fg.length || r[0] > fgEnd), ...fg].sort((a, b) => a[0] - b[0]);
     return { actual: rows('prices', start), forecast: rows('forecast', start), wind, wind_actual: rows('wind_actual', start),
@@ -148,6 +154,7 @@
       const [p, q] = path.split('?'), body = opts.body ? JSON.parse(opts.body) : {};
       if (p === 'me') return { username: 'local', must_change: false };
       if (p === 'data') return data(+new URLSearchParams(q).get('days_back') || 60);
+      if (p === 'history') { await backfill(+body.days || 0); persist(); return { ok: true }; }
       if (p === 'refresh') return body.auto && now() - last.p < 120 ? { prices: 'up to date' } : refresh(false);
       if (p === 'settings' && opts.method === 'PUT') {
         const s = settings();

@@ -5,7 +5,7 @@ addEventListener('unhandledrejection', e => fatal(String(e.reason?.message || e.
 const $$ = (s, el = document) => [...el.querySelectorAll(s)];
 const store = (k, v) => { try { return v === undefined ? localStorage.getItem(k) : localStorage.setItem(k, v); } catch { return null; } };
 const LOCAL = window.LOCAL;  // set by local.js when opened as a file
-const DAY = 864e5, MIN_SPAN = 3 * 36e5, BUCKETS = [900, 3600, 10800, 21600, 86400];
+const MAX_DAYS = 2200, DAY = 864e5, MIN_SPAN = 3 * 36e5, BUCKETS = [900, 3600, 10800, 21600, 86400];
 const RES = { 900: '15 min', 3600: '1 h', 10800: '3 h', 21600: '6 h', 86400: '1 day' };
 const NAMES = { spot: 'spot', total: 'total cost' };
 let D = null, S = {}, chart = null, filled = false, loadedDays = 60, bucket = null, avgs = [], tickStep = 1, me = {};
@@ -238,7 +238,13 @@ const isoDate = ms => { const d = new Date(ms); return `${d.getFullYear()}-${Str
 async function showRange(min, max) {
   touched = 0;
   const need = Math.ceil((Date.now() - min) / DAY) + 1;
-  if (need > loadedDays) await load(Math.min(366, need));
+  if (need > loadedDays) {  // the period reaches further back than what is loaded: fetch it from the source first
+    const days = Math.min(MAX_DAYS, need);
+    flash('Loading prices for the selected period…');
+    try { await api('history', { method: 'POST', body: JSON.stringify({ days }) }); }
+    catch (e) { flash('Cannot fetch older prices: ' + e.message); }
+    await load(days);
+  }
   setView(min, max);
 }
 $('#preset').onchange = e => {

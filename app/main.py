@@ -24,7 +24,8 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(mess
 TZ = ZoneInfo("Europe/Helsinki")
 VAT_FEED = 1.255  # VAT included in the public feeds (porssisahko, forecast)
 FINGRID_KEY = os.getenv("FINGRID_API_KEY", "")
-HISTORY_DAYS = 366
+HISTORY_DAYS = 366  # forecasts and wind are kept this long
+MAX_HISTORY_DAYS = 2200  # published prices are kept (hourly rows, small) and can be loaded this far back on demand
 NPF = "https://raw.githubusercontent.com/vividfog/nordpool-predict-fi/main/deploy/"
 env = lambda k, d="": os.getenv("SMTP_" + k.upper()) or d  # empty values in .env fall back to the default
 
@@ -136,19 +137,28 @@ async def fetch_prices(c):
     LAST_FETCH[0] = time.time()
 
 
-async def backfill(c):
-    """Load up to a year of hourly history (sahkotin.fi, EUR/MWh excl. VAT) without overwriting 15-min data."""
+BACKFILLED_FROM = [time.time()]  # oldest start already requested from sahkotin.fi, so a range it has no data for is not asked again
+
+
+async def backfill(c, days=HISTORY_DAYS):
+    """Load hourly history (sahkotin.fi, EUR/MWh excl. VAT) back `days` days without overwriting 15-min data."""
     first = db.execute("SELECT MIN(ts) FROM prices").fetchone()[0] or time.time()
-    start = time.time() - HISTORY_DAYS * 86400
-    if first - start < 2 * 86400:
-        return
+    start = time.time() - min(days, MAX_HISTORY_DAYS) * 86400
+    if first - start < 2 * 86400 or start >= BACKFILLED_FROM[0]:
+        return 0
     iso = lambda t: datetime.fromtimestamp(t, TZ).isoformat()
-    r = await c.get("https://sahkotin.fi/prices", params={"start": iso(start), "end": iso(first)})
-    r.raise_for_status()
-    rows = [(ts_of(x["date"]), x["value"] / 10) for x in r.json()["prices"]]
-    db.executemany("INSERT OR IGNORE INTO prices VALUES(?,?)", rows)
-    db.commit()
-    log.info("history backfill: %d rows", len(rows))
+    total, end = 0, first
+    while end - start > 3600:  # one request per year of data
+        a = max(start, end - HISTORY_DAYS * 86400)
+        r = await c.get("https://sahkotin.fi/prices", params={"start": iso(a), "end": iso(end)})
+        r.raise_for_status()
+        rows = [(ts_of(x["date"]), x["value"] / 10) for x in r.json()["prices"]]
+        db.executemany("INSERT OR IGNORE INTO prices VALUES(?,?)", rows)
+        db.commit()
+        total, end = total + len(rows), a
+    BACKFILLED_FROM[0] = start
+    log.info("history backfill: %d rows", total)
+    return total
 
 
 async def fetch_forecasts(c, fingrid=True):
@@ -171,7 +181,7 @@ async def fetch_forecasts(c, fingrid=True):
             upsert("wind", [(ts_of(x["startTime"]), x["value"]) for x in r.json()["data"]], src)
             await asyncio.sleep(7)  # Fingrid allows 10 requests/min
     cutoff = time.time() - (HISTORY_DAYS + 5) * 86400
-    for t in ("prices", "forecast", "wind"):
+    for t in ("forecast", "wind"):  # published prices are kept
         db.execute(f"DELETE FROM {t} WHERE ts<?", (cutoff,))
     db.commit()
 
@@ -546,7 +556,7 @@ async def logout(response: Response):
 
 @app.get("/api/data")
 async def data(days_back: int = 60, u: dict = Depends(user)):
-    start = time.time() - max(1, min(days_back, HISTORY_DAYS)) * 86400
+    start = time.time() - max(1, min(days_back, MAX_HISTORY_DAYS)) * 86400
     q = lambda sql, *a: db.execute(sql, a).fetchall()
     fg = dict(q("SELECT ts, mw FROM wind WHERE src='fingrid' AND ts>=?", start))
     fg_end = max(fg) if fg else 0
@@ -559,6 +569,25 @@ async def data(days_back: int = 60, u: dict = Depends(user)):
 
 
 LAST_REFRESH = [0.0]
+
+
+HISTORY_LOCK = asyncio.Lock()
+
+
+@app.post("/api/history", dependencies=[Depends(user)])
+async def history(body: dict):
+    """Fetch published prices back to the start of a period the user picked, if they are not stored yet."""
+    try:
+        days = int(body.get("days", 0))
+    except (TypeError, ValueError):
+        raise HTTPException(400, "days must be a number")
+    async with HISTORY_LOCK:
+        try:
+            async with httpx.AsyncClient(timeout=60, headers={"User-Agent": "electricityfinland/1.0"}) as c:
+                rows = await backfill(c, days)
+        except Exception as e:
+            raise HTTPException(502, f"history fetch failed: {e}")
+    return {"rows": rows}
 
 
 @app.post("/api/refresh", dependencies=[Depends(user)])
