@@ -1,38 +1,39 @@
 // Standalone mode: when index.html is opened by double-click (file://), this replaces the
-// Python backend (app/main.py) in the browser: fetching, cost calc, alarms, notifications.
-// Alarms only run while the page is open.
+// Python backend (app/main.py) in the browser: fetching, alarms, notifications. Prices use
+// priceValue() from costs.js. Alarms only run while the page is open.
 (() => {
   if (location.protocol !== 'file:') return;
   const NPF = 'https://raw.githubusercontent.com/vividfog/nordpool-predict-fi/main/deploy/';
+  const HISTORY_DAYS = 366;
   const DEFAULTS = {
     vat: 25.5, margin: 0, transfer_day: 0, transfer_night: 0, night_start: 22, night_end: 7, tax: 2.827, other: 0,
     monthly_provider: 0, monthly_transfer: 0, monthly_kwh: 0, spread_monthly: false,
-    alarm_basis: 'total', high_on: false, high: 20, low_on: false, low: 2, hysteresis: 0.5, summary_on: true,
-    quiet_start: -1, quiet_end: -1, wa_on: false, wa_phone: '', wa_apikey: '', email_on: false, email_to: '',
+    alarm_basis: 'total', alarm_vat: true, high_on: false, high: 20, low_on: false, low: 2, summary_on: true, ...MSG_DEFAULTS,
+    wa_on: false, email_on: false, recipients: [],
     ejs_service: '', ejs_template: '', ejs_key: '', fingrid_key: '',
   };
   const get = (k, d) => { try { return JSON.parse(localStorage.getItem('elfi_' + k)) ?? d; } catch { return d; } };
-  const put = (k, v) => { try { localStorage.setItem('elfi_' + k, JSON.stringify(v)); } catch { } };
+  const put = (k, v) => { try { localStorage.setItem('elfi_' + k, JSON.stringify(v)); } catch (e) { console.warn('storage', e); } };
   const TABLES = ['prices', 'forecast', 'wind_npf', 'wind_fg', 'wind_actual'];
   const db = Object.fromEntries(TABLES.map(t => [t, get(t, {})]));  // { ts: value }
   const errors = {};
-  const settings = () => ({ ...DEFAULTS, ...get('settings', {}) });
+  const clean = r => ({ name: String(r.name || '').slice(0, 60), phone: String(r.phone || '').trim(), apikey: String(r.apikey || '').trim(),
+    email: String(r.email || '').trim(), wa: !!r.wa, mail: !!r.mail });
+  function settings() {
+    const s = { ...DEFAULTS, ...get('settings', {}) };
+    if (!s.recipients.length && (s.wa_phone || s.email_to))  // migrate single-recipient settings
+      s.recipients = [clean({ name: 'Me', phone: s.wa_phone, apikey: s.wa_apikey, email: s.email_to, wa: true, mail: true })];
+    return s;
+  }
   const now = () => Date.now() / 1000;
   const tsOf = iso => Math.floor(Date.parse(iso) / 1000);
   const exVat = v => v > 0 ? v / 1.255 : v;  // public feeds include VAT 25.5 %
   const rows = (t, from = 0) => Object.entries(db[t]).map(([k, v]) => [+k, v]).filter(r => r[0] >= from).sort((a, b) => a[0] - b[0]);
-  const hour = ts => new Date(ts * 1000).getHours();
+  const keyRange = t => { let lo = Infinity, hi = 0; for (const k in db[t]) { lo = Math.min(lo, +k); hi = Math.max(hi, +k); } return [lo, hi]; };
+  const lastPrice = () => keyRange('prices')[1];
   const hm = ts => new Date(ts * 1000).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
   const midnight = days => { const d = new Date(); d.setHours(0, 0, 0, 0); d.setDate(d.getDate() + days); return d; };
-
-  function costs(s, ts, spot) {
-    const sv = spot > 0 ? spot * (1 + s.vat / 100) : spot, h = hour(ts), ns = s.night_start, ne = s.night_end;
-    const night = ns > ne ? (h >= ns || h < ne) : (ns <= h && h < ne);
-    let total = sv + s.margin + s.tax + s.other + (night ? s.transfer_night : s.transfer_day);
-    if (s.spread_monthly && s.monthly_kwh > 0) total += (s.monthly_provider + s.monthly_transfer) * 100 / s.monthly_kwh;
-    return [+sv.toFixed(3), +total.toFixed(3)];
-  }
-  const priceOf = (s, ts, spot) => costs(s, ts, spot)[s.alarm_basis === 'total' ? 1 : 0];
+  const priceOf = (s, ts, spot) => priceValue(s, ts, spot, s.alarm_basis, s.alarm_vat);
 
   async function json(url, opts) {
     const r = await fetch(url, opts);
@@ -40,7 +41,7 @@
     return r.json();
   }
   async function track(name, fn) {
-    try { await fn(); delete errors[name]; } catch (e) { errors[name] = `${name}: ${e.message}`; console.warn(name, e); }
+    try { await fn(); delete errors[name]; return 'ok'; } catch (e) { errors[name] = `${name}: ${e.message}`; console.warn(name, e); return 'failed: ' + e.message; }
   }
 
   async function fetchPrices() {
@@ -52,8 +53,16 @@
     }
     list.forEach(([t, v]) => db.prices[t] = v);
   }
+  async function backfill() {  // up to a year of hourly history, without overwriting 15-min data
+    const first = Math.min(now(), keyRange('prices')[0]), start = now() - HISTORY_DAYS * 86400;
+    if (first - start < 2 * 86400) return;
+    const iso = t => new Date(t * 1000).toISOString();
+    const r = await json(`https://sahkotin.fi/prices?start=${iso(start)}&end=${iso(first)}`);
+    r.prices.forEach(x => { const t = tsOf(x.date); if (!(t in db.prices)) db.prices[t] = x.value / 10; });
+  }
   async function fetchForecasts() {
-    (await json(NPF + 'prediction.json')).forEach(([t, v]) => db.forecast[Math.floor(t / 1000)] = exVat(v));
+    const last = lastPrice();  // keep estimates as they were before the price was published
+    (await json(NPF + 'prediction.json')).forEach(([t, v]) => { if (t / 1000 > last) db.forecast[Math.floor(t / 1000)] = exVat(v); });
     (await json(NPF + 'windpower.json')).forEach(([t, v]) => db.wind_npf[Math.floor(t / 1000)] = v);
   }
   async function fetchFingrid() {
@@ -67,119 +76,100 @@
     }
   }
   function persist() {
-    const cutoff = now() - 60 * 86400;
+    const cutoff = now() - (HISTORY_DAYS + 5) * 86400;
     TABLES.forEach(t => { for (const k in db[t]) if (+k < cutoff) delete db[t][k]; put(t, db[t]); });
   }
 
-  async function notify(s, text, force = false) {
-    const out = {};
-    if (s.wa_on || force) {
-      if (s.wa_phone && s.wa_apikey) {
-        // CallMeBot sends no CORS headers: fire-and-forget, the response cannot be read
-        await fetch(`https://api.callmebot.com/whatsapp.php?phone=${encodeURIComponent(s.wa_phone)}&apikey=${encodeURIComponent(s.wa_apikey)}&text=${encodeURIComponent(text)}`, { mode: 'no-cors' })
-          .then(() => out.whatsapp = 'sent (check your phone)', e => out.whatsapp = 'failed: ' + e.message);
-      } else out.whatsapp = 'missing phone or API key';
-    }
-    if (s.email_on || force) {
-      if (s.email_to && s.ejs_service && s.ejs_template && s.ejs_key) {
-        await fetch('https://api.emailjs.com/api/v1.0/email/send', {
+  async function notify(s, text, force = null) {  // force: null = alarm, 'all' | 'whatsapp' | 'email' = test
+    const out = {}, wa = ['all', 'whatsapp'].includes(force) || (!force && s.wa_on), em = ['all', 'email'].includes(force) || (!force && s.email_on);
+    for (const r of s.recipients) {
+      const who = r.name || r.phone || r.email;
+      if (wa && r.phone) {
+        if (!r.apikey) out[who + ' WhatsApp'] = 'missing CallMeBot API key';
+        else  // CallMeBot sends no CORS headers: fire-and-forget, the response cannot be read
+          await fetch(`https://api.callmebot.com/whatsapp.php?phone=${encodeURIComponent(r.phone)}&apikey=${encodeURIComponent(r.apikey)}&text=${encodeURIComponent(text)}`, { mode: 'no-cors' })
+            .then(() => out[who + ' WhatsApp'] = 'sent (check the phone)', e => out[who + ' WhatsApp'] = 'failed: ' + e.message);
+      }
+      if (em && r.email) {
+        if (!(s.ejs_service && s.ejs_template && s.ejs_key)) out[who + ' email'] = 'EmailJS not configured';
+        else await fetch('https://api.emailjs.com/api/v1.0/email/send', {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ service_id: s.ejs_service, template_id: s.ejs_template, user_id: s.ejs_key,
-            template_params: { to_email: s.email_to, subject: 'Electricity price alert', message: text } }),
-        }).then(async r => out.email = r.ok ? 'sent' : 'failed: ' + await r.text(), e => out.email = 'failed: ' + e.message);
-      } else out.email = 'missing recipient or EmailJS settings';
+            template_params: { to_email: r.email, subject: 'Electricity price alert', message: text } }),
+        }).then(async res => out[who + ' email'] = res.ok ? 'sent' : 'failed: ' + await res.text(), e => out[who + ' email'] = 'failed: ' + e.message);
+      }
     }
+    if (!Object.keys(out).length) out.info = { whatsapp: 'the selected recipients have no WhatsApp number', email: 'the selected recipients have no email address' }[force] || 'no recipient with a WhatsApp number or email address';
     console.info('notify', text, out);
     return out;
   }
 
-  function inQuiet(s) {
-    const a = s.quiet_start, b = s.quiet_end, h = new Date().getHours();
-    if (a < 0 || b < 0 || a === b) return false;
-    return a > b ? (h >= a || h < b) : (a <= h && h < b);
+  function dailyAlarm(s) {  // once a day from 14:00: the fixed prices from 14:00 today to 14:00 tomorrow
+    const d = new Date(); if (d.getHours() < 14) return [];
+    d.setHours(14, 0, 0, 0);
+    const a = d / 1000, b = a + 86400, key = d.toDateString(), list = rows('prices', a - 3600);
+    if (get('daily_sent') === key || !list.length || list.at(-1)[0] < b - 900) return [];
+    put('daily_sent', key);
+    const msg = dailyMessage(s, list, a, b);
+    return msg ? [msg] : [];
   }
-  function checkAlarms(s) {
-    const row = rows('prices').filter(r => r[0] <= now()).at(-1);
-    if (!row || now() - row[0] > 3600) return [];
-    const p = priceOf(s, ...row), st = get('alarm_state', {}), msgs = [], hy = s.hysteresis;
-    for (const [kind, on, trig, clear, word] of [
-      ['high', s.high_on, p >= s.high, p < s.high - hy, 'ABOVE'],
-      ['low', s.low_on, p <= s.low, p > s.low + hy, 'BELOW']]) {
-      if (on && trig && !st[kind]) {
-        st[kind] = true;
-        msgs.push(`⚡ Price ${word} ${s[kind]} c/kWh: now ${p.toFixed(2)} c/kWh (${hm(row[0])}, ${s.alarm_basis})`);
-      } else if (st[kind] && (clear || !on)) st[kind] = false;
-    }
-    put('alarm_state', st);
-    return inQuiet(s) ? [] : msgs;
-  }
-  function windows(list, test) {
-    const out = []; let start = null;
-    list.forEach(([ts, p]) => {
-      if (test(p) && start === null) start = ts;
-      if (!test(p) && start !== null) { out.push(`${hm(start)}–${hm(ts)}`); start = null; }
-    });
-    if (start !== null) out.push(`${hm(start)}–${hm(list.at(-1)[0] + 900)}`);
-    return out.join(', ');
-  }
-  function dailySummary(s) {
-    const d0 = midnight(1), a = d0 / 1000, b = midnight(2) / 1000, key = d0.toDateString();
-    if (!s.summary_on || get('summary_date') === key) return [];
-    const list = rows('prices', a).filter(r => r[0] < b).map(([t, v]) => [t, priceOf(s, t, v)]);
-    if (!list.length || list.at(-1)[0] < b - 3600) return [];
-    put('summary_date', key);
-    const ps = list.map(r => r[1]), lo = list.reduce((x, y) => y[1] < x[1] ? y : x), hi = list.reduce((x, y) => y[1] > x[1] ? y : x);
-    let msg = `📅 Tomorrow ${d0.getDate()}.${d0.getMonth() + 1}. (${s.alarm_basis}): avg ${(ps.reduce((x, y) => x + y) / ps.length).toFixed(2)}, ` +
-      `min ${lo[1].toFixed(2)} @${hm(lo[0])}, max ${hi[1].toFixed(2)} @${hm(hi[0])} c/kWh`;
-    let w;
-    if (s.high_on && (w = windows(list, p => p >= s.high))) msg += `\n🔴 ≥${s.high}: ${w}`;
-    if (s.low_on && (w = windows(list, p => p <= s.low))) msg += `\n🟢 ≤${s.low}: ${w}`;
-    return [msg];
-  }
-  const hasTomorrow = () => { const m = Math.max(0, ...Object.keys(db.prices).map(Number)); return m >= midnight(2) / 1000 - 3600; };
 
-  const last = { p: 0, f: 0 };
+  const last = { p: 0, f: 0, h: 0 };
+  async function refresh(fingrid = true) {
+    const out = { prices: await track('prices', fetchPrices), forecast: await track('forecast', fetchForecasts) };
+    if (fingrid) await track('fingrid', fetchFingrid);
+    persist();
+    return out;
+  }
   async function tick() {
-    const t = now(), waiting = !hasTomorrow() && new Date().getHours() >= 13;
+    const t = now(), waiting = lastPrice() < midnight(2) / 1000 - 3600 && new Date().getHours() >= 13;
     let changed = false;
     if (t - last.p > (waiting ? 600 : 3600)) { last.p = t; await track('prices', fetchPrices); changed = true; }
     if (t - last.f > 3600) { last.f = t; await track('forecast', fetchForecasts); await track('fingrid', fetchFingrid); changed = true; }
-    if (changed) { persist(); window.load?.(); }
+    if (t - last.h > 86400) { last.h = t; await track('history', backfill); changed = true; }
+    if (changed) { persist(); if (!document.querySelector('#main.hidden')) window.load?.(); }
     const s = settings();
-    for (const m of [...checkAlarms(s), ...dailySummary(s)]) await notify(s, m);
+    for (const m of dailyAlarm(s)) await notify(s, m);
   }
 
   function data(daysBack) {
-    const s = settings(), start = now() - Math.max(1, Math.min(daysBack, 60)) * 86400;
-    const actual = rows('prices', start).map(([t, v]) => [t, ...costs(s, t, v)]);
-    const lastTs = actual.length ? actual.at(-1)[0] : 0;
-    const forecast = rows('forecast', Math.max(lastTs + 1, start)).map(([t, v]) => [t, ...costs(s, t, v)]);
+    const s = settings(), start = now() - Math.max(1, Math.min(daysBack, HISTORY_DAYS)) * 86400;
     const fg = rows('wind_fg', start), fgEnd = fg.length ? fg.at(-1)[0] : 0;
     const wind = [...rows('wind_npf', start).filter(r => !fg.length || r[0] > fgEnd), ...fg].sort((a, b) => a[0] - b[0]);
-    return { actual, forecast, wind, wind_actual: rows('wind_actual', start), settings: s,
-      smtp: !!(s.ejs_service && s.ejs_template && s.ejs_key), fingrid: !!s.fingrid_key, errors: Object.values(errors) };
+    return { actual: rows('prices', start), forecast: rows('forecast', start), wind, wind_actual: rows('wind_actual', start),
+      settings: s, fingrid: !!s.fingrid_key, errors: Object.values(errors) };
   }
 
   window.LOCAL = {
     fields: [['ejs_service', 'EmailJS service ID', 'text'], ['ejs_template', 'EmailJS template ID', 'text'],
       ['ejs_key', 'EmailJS public key', 'text'], ['fingrid_key', 'Fingrid API key (optional)', 'text']],
-    emailHint: 'Email uses a free <a href="https://www.emailjs.com" target="_blank" rel="noopener">EmailJS</a> account; in the template use {{to_email}} as recipient and {{message}} as body. Alarms run only while this page is open.',
+    emailHint: 'A page opened from disk cannot use an SMTP server, so email goes through a free <a href="https://www.emailjs.com" target="_blank" rel="noopener">EmailJS</a> account: in the template use {{to_email}} as recipient and {{message}} as body. Alarms run only while this page is open.',
     async api(path, opts = {}) {
-      const [p, q] = path.split('?');
-      if (p === 'data') return data(+new URLSearchParams(q).get('days_back') || 1);
+      const [p, q] = path.split('?'), body = opts.body ? JSON.parse(opts.body) : {};
+      if (p === 'me') return { username: 'local', must_change: false };
+      if (p === 'data') return data(+new URLSearchParams(q).get('days_back') || 60);
+      if (p === 'refresh') return body.auto && now() - last.p < 120 ? { prices: 'up to date' } : refresh(false);
       if (p === 'settings' && opts.method === 'PUT') {
-        const s = settings(), body = JSON.parse(opts.body);
+        const s = settings();
         for (const [k, v] of Object.entries(body)) {
           if (!(k in DEFAULTS)) continue;
           const d = DEFAULTS[k];
-          s[k] = typeof d === 'boolean' ? !!v : typeof d === 'number' ? +v : String(v);
+          s[k] = Array.isArray(d) ? v.slice(0, 20).map(clean) : typeof d === 'boolean' ? !!v : typeof d === 'number' ? +v : String(v);
           if (Number.isNaN(s[k])) throw new Error('invalid value for ' + k);
         }
-        put('settings', s); put('alarm_state', {});
+        put('settings', Object.fromEntries(Object.entries(s).filter(([k]) => k in DEFAULTS)));
         if (body.fingrid_key) last.f = 0;  // fetch with the new key on the next tick
         return s;
       }
-      if (p === 'test-notify') return notify(settings(), '✅ Test message from Electricity Finland', true);
+      if (p === 'test-notify') {
+        const s = settings(), a = Math.floor(now() / 900) * 900;
+        if (Array.isArray(body.only)) {
+          s.recipients = s.recipients.filter((r, i) => body.only.includes(i));
+          if (!s.recipients.length) throw new Error('select at least one recipient');
+        }  // example: daily message for the published prices from now on
+        const text = '✅ Test message from Electricity Finland. Example of the daily message:\n' + (dailyMessage(s, rows('prices', a - 3600), a, a + 86400) || '(no published prices yet)');
+        return notify(s, text, body.channel || 'all');
+      }
       return { ok: true };
     },
   };

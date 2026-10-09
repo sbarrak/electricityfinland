@@ -7,70 +7,160 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="theme-color" content="#0f172a">
 <title>Electricity Finland</title>
-<link rel="stylesheet" href="style.css">
+<link rel="stylesheet" href="style.css?v=9">
 </head>
 <body>
-<div id="login" class="login hidden">
+<div id="fatal" class="fatal hidden"></div>
+<div id="loading" class="screen"><p class="hint">Loading…</p></div>
+<div id="login" class="screen hidden">
   <form id="loginForm" class="card">
     <h1>⚡ Electricity Finland</h1>
+    <input id="user" placeholder="Username" autocomplete="username" autocapitalize="none" required>
     <input id="pw" type="password" placeholder="Password" autocomplete="current-password" required>
     <button>Log in</button>
+    <p class="hint">First login: admin / admin</p>
     <p id="loginErr" class="err"></p>
+  </form>
+</div>
+
+<div id="change" class="screen hidden">
+  <form id="changeForm" class="card">
+    <h1>Change username and password</h1>
+    <p class="hint" id="changeHint">You are using the default or a temporary login. Choose your own password to continue (and a username other than admin).</p>
+    <input id="curPw" type="password" placeholder="Current password" autocomplete="current-password" required>
+    <input id="newUser" placeholder="New username (min 3)" autocomplete="username" autocapitalize="none" required>
+    <input id="newPw" type="password" placeholder="New password (min 8)" autocomplete="new-password" required>
+    <input id="newPw2" type="password" placeholder="Repeat new password" autocomplete="new-password" required>
+    <button>Save</button>
+    <button type="button" id="changeCancel" class="ghost">Cancel</button>
+    <p id="changeErr" class="err"></p>
   </form>
 </div>
 
 <div id="main" class="hidden">
   <header>
     <h1>⚡ Spot price FI</h1>
-    <div class="seg" id="mode">
-      <button data-v="spot">Spot + VAT</button><button data-v="total">Total cost</button>
-    </div>
-    <div class="seg" id="range">
-      <button data-v="1">1d</button><button data-v="3">3d</button><button data-v="7">7d</button>
-    </div>
+    <button id="refresh" class="ghost" title="Fetch the latest prices now">⟳ Refresh prices</button>
+    <span id="who" class="hint"></span>
+    <button id="account" class="ghost">Account</button>
     <button id="logout" class="ghost">Log out</button>
   </header>
 
-  <section class="alarmbar card">
-    <label class="sw"><input type="checkbox" data-k="high_on"><span>🔴 Above</span></label>
-    <input type="number" step="0.1" data-k="high" inputmode="decimal"><span class="u">c/kWh</span>
-    <label class="sw"><input type="checkbox" data-k="low_on"><span>🟢 Below</span></label>
-    <input type="number" step="0.1" data-k="low" inputmode="decimal"><span class="u">c/kWh</span>
-    <select data-k="alarm_basis"><option value="total">on total cost</option><option value="spot">on spot + VAT</option></select>
-    <label class="sw"><input type="checkbox" data-k="wa_on"><span>WhatsApp</span></label>
-    <label class="sw"><input type="checkbox" data-k="email_on"><span>Email</span></label>
-    <button class="save">Save</button>
-  </section>
-
   <section class="cards" id="cards"></section>
 
-  <section class="card chartwrap"><canvas id="chart"></canvas></section>
-  <p class="legend">Solid = published Nord Pool day-ahead price · dashed = estimate (nordpool-predict-fi) · blue = wind power MW</p>
+  <section class="card chartcard">
+    <div class="tabs" id="tabs">
+      <button data-v="prices">Prices</button><button data-v="compare" id="tabCompare">Estimate vs actual</button>
+    </div>
+    <div class="toolbar">
+      <div class="seg" id="mode"><button data-v="spot">Spot</button><button data-v="total">Total cost</button></div>
+      <label class="sw"><input type="checkbox" id="vat"><span>Incl. VAT</span></label>
+      <label class="sw"><input type="checkbox" id="cmp"><span>Estimate vs actual tab</span></label>
+      <label class="sw"><input type="checkbox" id="avg"><span>Average</span></label>
+    </div>
+    <div class="toolbar alarmbar" id="alarmbar">
+      <span class="tlabel">Alarms</span>
+      <label class="sw hi"><input type="checkbox" data-k="high_on"><span>🔴 Above</span></label>
+      <input type="number" step="0.1" data-k="high" inputmode="decimal"><span class="u">c/kWh</span>
+      <label class="sw lo"><input type="checkbox" data-k="low_on"><span>🟢 Below</span></label>
+      <input type="number" step="0.1" data-k="low" inputmode="decimal"><span class="u">c/kWh</span>
+      <select data-k="alarm_basis"><option value="total">on total cost</option><option value="spot">on spot</option></select>
+      <label class="sw"><input type="checkbox" data-k="alarm_vat"><span>incl. VAT</span></label>
+      <label class="sw"><input type="checkbox" data-k="wa_on"><span>WhatsApp</span></label>
+      <label class="sw"><input type="checkbox" data-k="email_on"><span>Email</span></label>
+    </div>
+    <div class="toolbar">
+      <select id="preset">
+        <option value="default">−3 days … +2 days</option><option value="7">Last week</option><option value="30">Last month</option>
+        <option value="91">Last 3 months</option><option value="365">Last year</option><option value="custom" hidden>Custom</option>
+      </select>
+      <label class="date">From <input type="date" id="from"></label>
+      <label class="date">To <input type="date" id="to"></label>
+      <div class="zoom right">
+        <button data-z="x-" title="Zoom out (time)">−</button><span>⇔</span><button data-z="x+" title="Zoom in (time)">+</button>
+        <button data-z="y-" title="Zoom out (price)">−</button><span>⇕</span><button data-z="y+" title="Zoom in (price)">+</button>
+        <button data-z="reset" class="ghost">Reset</button>
+      </div>
+    </div>
+    <div class="plot">
+      <div class="chartwrap"><canvas id="chart"></canvas></div>
+      <div id="vscroll" class="vscroll"><div></div></div>
+    </div>
+    <div id="hscroll" class="hscroll"><div></div></div>
+    <p class="legend"><span id="info"></span> <span id="legend"></span></p>
+  </section>
 
-  <section class="settings">
+  <section class="settings" id="settings">
     <details class="card" open>
-      <summary>Costs <small>c/kWh incl. VAT</small></summary>
+      <summary>Costs <small>c/kWh incl. VAT · saved automatically</small></summary>
       <div class="grid" id="costs"></div>
     </details>
-    <details class="card">
-      <summary>Monthly fees <small>€ / month</small></summary>
+    <details class="card" open>
+      <summary>Monthly fees <small>€ / month · saved automatically</small></summary>
       <div class="grid" id="monthly"></div>
       <p class="hint" id="monthlyInfo"></p>
     </details>
-    <details class="card">
-      <summary>Notifications</summary>
+    <div class="card" id="breakdown"></div>
+    <details class="card wide">
+      <summary>Recipients <small>WhatsApp / email</small></summary>
+      <div id="recips"></div>
+      <button id="addRecip" class="ghost" type="button">+ Add recipient</button>
+      <p class="hint">Tick the box at the start of a row to select that recipient for <b>Send WhatsApp</b> / <b>Send email</b> (a test message through CallMeBot or your email server). A recipient gets WhatsApp when the phone and key are filled in, and email when the address is filled in. WhatsApp uses <a href="https://www.callmebot.com/blog/free-api-whatsapp-messages/" target="_blank" rel="noopener">CallMeBot</a>: each person sends “I allow callmebot to send me messages” to +34 644 51 95 23 from their phone and gets their own API key.</p>
       <div class="grid" id="notif"></div>
-      <p class="hint">WhatsApp uses <a href="https://www.callmebot.com/blog/free-api-whatsapp-messages/" target="_blank" rel="noopener">CallMeBot</a>: send “I allow callmebot to send me messages” to +34 644 51 95 23 to get your API key. <span id="emailHint">Email uses the SMTP server set in <code>.env</code>.</span></p>
-      <button id="test" class="ghost">Send test message</button> <span id="testOut" class="hint"></span>
+      <div class="tests">
+        <button class="ghost openMsg" type="button">✉ Customize messages</button>
+        <button class="ghost test" data-ch="whatsapp" type="button">💬 Send WhatsApp</button>
+        <button class="ghost test" data-ch="email" type="button">✉️ Send email</button>
+      </div>
+      <p class="hint testOut"></p>
     </details>
-    <button class="save wide">Save settings</button>
+    <details class="card" id="smtpCard">
+      <summary>Email server <small>SMTP relay</small></summary>
+      <div class="grid" id="smtp"></div>
+      <p class="hint" id="emailHint">Messages are sent through this server with your relay username and password. Leave the password empty to keep the saved one.</p>
+      <button class="ghost test" data-ch="email" type="button">Test email to selected</button> <span class="hint testOut"></span>
+    </details>
+    <details class="card hidden" id="usersCard">
+      <summary>Users <small>admin only</small></summary>
+      <div id="userList"></div>
+      <div class="adduser">
+        <input id="nuName" placeholder="New username" autocomplete="off" autocapitalize="none">
+        <input id="nuPw" placeholder="Temporary password (min 8)" autocomplete="off">
+        <button type="button" id="nuAdd">Add user</button>
+      </div>
+      <p class="hint">A new user logs in with the temporary password and then chooses their own. Every user has their own recipients, email server, alarms, messages and costs.</p>
+      <p class="hint" id="nuMsg"></p>
+      <p class="err" id="nuErr"></p>
+    </details>
   </section>
   <footer id="status"></footer>
 </div>
 
+<dialog id="msgDialog">
+  <form method="dialog" id="msgForm">
+    <h2>Alarm messages</h2>
+    <p class="hint">Placeholders: <code id="phAlarm"></code><br>Daily summary: <code id="phSummary"></code></p>
+    <p class="hint">One message is sent every day between 14:00 and 14:05 with the fixed prices from 14:00 to 14:00 the next day: the summary, then one line for each time the price goes up to the high limit or down to the low limit.</p>
+    <label>Price goes up to or above the high limit<textarea data-m="msg_high" rows="2"></textarea></label>
+    <p class="hint preview" data-p="msg_high"></p>
+    <label>Price goes down to or below the low limit<textarea data-m="msg_low" rows="2"></textarea></label>
+    <p class="hint preview" data-p="msg_low"></p>
+    <label>Summary at the top of the daily message<textarea data-m="msg_summary" rows="2"></textarea></label>
+    <p class="hint preview" data-p="msg_summary"></p>
+    <div class="dlgbtns">
+      <button type="button" class="ghost" id="msgDefaults">Restore defaults</button>
+      <span class="right"></span>
+      <button type="button" class="ghost" id="msgCancel">Cancel</button>
+      <button type="submit" id="msgSave">Save</button>
+    </div>
+    <p class="err" id="msgErr"></p>
+  </form>
+</dialog>
+
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns@3.0.0/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
-<script src="local.js"></script>
-<script src="app.js"></script>
+<script src="costs.js?v=9"></script>
+<script src="local.js?v=9"></script>
+<script src="app.js?v=9"></script>
 </body>
 </html>
