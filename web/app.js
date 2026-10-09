@@ -42,9 +42,9 @@ const recipRow = (r = { wa: true, mail: true }) => `<div class="recip">
   <input data-r="email" type="email" placeholder="Email" value="${esc(r.email)}">
   <label class="sw"><input type="checkbox" data-r="wa" ${r.wa ? 'checked' : ''}><span>WhatsApp</span></label>
   <label class="sw"><input type="checkbox" data-r="mail" ${r.mail ? 'checked' : ''}><span>Email</span></label>
+  <label class="sw test-pick" title="Send test messages to this recipient"><input type="checkbox" data-t><span>Test</span></label>
   <button type="button" class="ghost del" title="Remove">✕</button></div>`;
 $('#addRecip').onclick = () => $('#recips').insertAdjacentHTML('beforeend', recipRow());
-$('#recips').onclick = e => e.target.classList.contains('del') && e.target.closest('.recip').remove();
 
 function fillSettings() {
   $$('[data-k]').forEach(el => { const v = S[el.dataset.k]; el.type === 'checkbox' ? el.checked = !!v : el.value = v ?? ''; });
@@ -82,13 +82,17 @@ const autosave = () => {
   saveTimer = setTimeout(() => saveNow().then(() => flash('Saved ✓'), e => flash('Not saved: ' + e.message)), 400);
 };
 for (const root of [$('#alarmbar'), $('#settings')]) ['input', 'change'].forEach(ev => root.addEventListener(ev, autosave));
-$('#recips').addEventListener('click', e => e.target.classList.contains('del') && autosave());
+$('#recips').addEventListener('click', e => {  // remove a recipient (a handler must not return false: that would block the tick boxes)
+  if (e.target.classList.contains('del')) { e.target.closest('.recip').remove(); autosave(); }
+});
 $$('.test').forEach(b => b.onclick = async () => {
   const out = t => $$('.testOut').forEach(el => el.textContent = t);
   out('Sending…');
   try {
     await saveNow();
-    const r = await api('test-notify', { method: 'POST', body: JSON.stringify({ channel: b.dataset.ch }) });
+    const only = $$('.recip').map((row, i) => $('[data-t]', row).checked ? i : -1).filter(i => i >= 0);
+    if (!only.length) return out('Tick “Test” next to the recipients who should get the test message.');
+    const r = await api('test-notify', { method: 'POST', body: JSON.stringify({ channel: b.dataset.ch, only }) });
     out(Object.entries(r).map(([k, v]) => `${k}: ${v}`).join(' · '));
   } catch (e) { out(e.message); }
 });
@@ -148,6 +152,7 @@ async function boot() {
   }
   if (me.must_change) return openChange(true);
   $('#who').textContent = '👤 ' + me.username;
+  if (me.dev) ['#account', '#logout'].forEach(s => $(s).classList.add('hidden'));
   screen('main');
   load();
 }

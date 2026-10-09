@@ -26,7 +26,7 @@ VAT_FEED = 1.255  # VAT included in the public feeds (porssisahko, forecast)
 FINGRID_KEY = os.getenv("FINGRID_API_KEY", "")
 HISTORY_DAYS = 366
 NPF = "https://raw.githubusercontent.com/vividfog/nordpool-predict-fi/main/deploy/"
-env = lambda k, d="": os.getenv("SMTP_" + k.upper(), d)
+env = lambda k, d="": os.getenv("SMTP_" + k.upper()) or d  # empty values in .env fall back to the default
 
 # Fee fields are c/kWh incl. VAT (as on Finnish invoices); monthly fees in EUR.
 DEFAULTS = {
@@ -362,6 +362,9 @@ if not kv_get("secret"):
     kv_set("secret", os.urandom(32).hex())
 SECRET = (os.getenv("SECRET_KEY") or kv_get("secret")).encode()
 SESSION_DAYS = 30
+DEV = os.getenv("DEV_NO_LOGIN") == "1"  # run-dev.sh: no login, for testing on your own computer only
+if DEV:
+    log.warning("DEV_NO_LOGIN=1: login is disabled. Never use this on a server reachable by others.")
 
 
 def sign(msg):
@@ -377,6 +380,8 @@ def set_session(request, response, a):
 
 
 def auth_any(request: Request):  # logged in (may still have to change the default credentials)
+    if DEV:
+        return
     exp, gen, sig = (request.cookies.get("session", "").split(".") + ["", "", ""])[:3]
     if not (exp.isdigit() and int(exp) > time.time() and gen == str(kv_get("account")["gen"])
             and hmac.compare_digest(sig, sign(f"{exp}.{gen}"))):
@@ -385,7 +390,7 @@ def auth_any(request: Request):  # logged in (may still have to change the defau
 
 def auth(request: Request):
     auth_any(request)
-    if kv_get("account")["must_change"]:
+    if not DEV and kv_get("account")["must_change"]:
         raise HTTPException(403, "change the default username and password first")
 
 
@@ -415,6 +420,8 @@ async def login(body: dict, request: Request, response: Response):
 
 @app.get("/api/me", dependencies=[Depends(auth_any)])
 async def me():
+    if DEV:
+        return {"username": "dev mode, no login", "must_change": False, "dev": True}
     a = kv_get("account")
     return {"username": a["username"], "must_change": a["must_change"]}
 
@@ -500,6 +507,11 @@ async def test_notify(body: dict | None = None):
         raise HTTPException(400, "channel must be all, whatsapp or email")
     async with httpx.AsyncClient(timeout=30) as c:
         s = settings()
+        only = (body or {}).get("only")  # indexes of the recipients ticked for the test
+        if isinstance(only, list):
+            s["recipients"] = [r for i, r in enumerate(s["recipients"]) if i in only]
+            if not s["recipients"]:
+                raise HTTPException(400, "tick Test next to at least one recipient")
         a = int(time.time() // 900 * 900)  # example: the daily message for the published prices from now on
         rows = db.execute("SELECT ts, spot FROM prices WHERE ts>=? ORDER BY ts", (a - 3600,)).fetchall()
         text = "✅ Test message from Electricity Finland. Example of the daily message:\n" + (daily_message(s, rows, a, a + 86400) or "(no published prices yet)")

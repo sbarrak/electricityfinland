@@ -16,7 +16,7 @@ Self-hosted monitor for Finnish electricity spot prices (Nord Pool day-ahead, 15
 - **Customizable messages** (✉ Customize messages, under Recipients): edit the high, low and daily-summary texts with placeholders like `{price}`, `{date}`, `{time}`, `{end}`, `{duration}`, `{limit}`, with a live example. Save or Cancel closes the window.
 - **Cards** with an ⓘ button explaining each value; a Transfer card shows the current transfer fee + tax.
 - Costs, monthly fees, recipients and email server settings are **saved automatically** while you type.
-- **Several recipients**, each with their own WhatsApp number (CallMeBot key) and/or email. Test buttons for all, WhatsApp only and email only.
+- **Several recipients**, each with their own WhatsApp number (CallMeBot key) and/or email. Tick **Test** next to the recipients who should get a test message, then use Send test to all / Test WhatsApp / Test email.
 - **Email server menu** for your SMTP relay (server, port, STARTTLS/SSL, username, password) with a test button.
 - **Chart** also shows wind power forecast + actuals (MW, right axis) and a "now" line.
 - Total cost = spot + VAT + provider margin + transfer (day/night) + electricity tax + other, optionally plus monthly fees spread per kWh.
@@ -50,6 +50,8 @@ Behaves exactly like the NAS version, so it's the best way to test before deploy
 2. Download the repo and double-click **`run.bat`** (Windows) or run **`./run.sh`** (Mac/Linux).
 3. The first start creates `.env` from `.env.example` and installs dependencies into `.venv`. Your browser then opens http://localhost:8000. Log in with `admin` / `admin` and choose your own username and password. Set up the email server in the page.
 4. Stop with Ctrl+C or by closing the window. Data is kept in `./data`.
+
+**Dev mode without login:** start **`./run-dev.sh`** (Mac/Linux) or **`run-dev.bat`** (Windows) instead. Same app and data, but no login screen. It only listens on this computer (localhost); never use it on the NAS.
 
 ## Standalone (no Docker)
 1. Download the repo (Code → Download ZIP) and unzip.
@@ -96,6 +98,7 @@ app/main.py          FastAPI: fetchers, cost calc, alarms, notifications, login 
 web/                 index.html, app.js, style.css (Chart.js), local.js (standalone backend)
 ElectricityFinland.html  double-click launcher for standalone mode
 run.bat / run.sh     local server launcher (no Docker/nginx)
+run-dev.bat / run-dev.sh  same without login, for testing
 nginx/default.conf
 ```
 Update: `git pull && docker compose up -d --build`.

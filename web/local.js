@@ -162,7 +162,11 @@
         return s;
       }
       if (p === 'test-notify') {
-        const s = settings(), a = Math.floor(now() / 900) * 900;  // example: daily message for the published prices from now on
+        const s = settings(), a = Math.floor(now() / 900) * 900;
+        if (Array.isArray(body.only)) {
+          s.recipients = s.recipients.filter((r, i) => body.only.includes(i));
+          if (!s.recipients.length) throw new Error('tick Test next to at least one recipient');
+        }  // example: daily message for the published prices from now on
         const text = '✅ Test message from Electricity Finland. Example of the daily message:\n' + (dailyMessage(s, rows('prices', a - 3600), a, a + 86400) || '(no published prices yet)');
         return notify(s, text, body.channel || 'all');
       }
