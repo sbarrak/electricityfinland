@@ -20,7 +20,7 @@ Self-hosted monitor for Finnish electricity spot prices (Nord Pool day-ahead, 15
 - **Email server menu** for your SMTP relay (server, port, STARTTLS/SSL, username, password) with a test button.
 - **Chart** also shows wind power forecast + actuals (MW, right axis) and a "now" line.
 - Total cost = spot + VAT + provider margin + transfer (day/night) + electricity tax + other, optionally plus monthly fees spread per kWh.
-- **Notifications**: WhatsApp (free, via CallMeBot) and email (your own SMTP, e.g. Synology Mail Server).
+- **Notifications**: WhatsApp (free, via CallMeBot) and email (your own SMTP server).
 - Responsive layout for iPhone, iPad and desktop; light/dark mode; password login.
 
 ## Data sources (all free)
@@ -83,7 +83,7 @@ Use HTTPS: the login cookie is marked `Secure` when the proxy forwards `X-Forwar
 2. You receive an API key. Under **Recipients** press **+ Add recipient**, enter the name, phone (`+358…`) and key, tick the box at the start of the row and press **💬 Send WhatsApp**. Repeat for every person who should get messages (each needs their own key).
 
 ### Email server
-Open **Email server** in the page: server (default `mail.laseleka.com`), port `587`, security `starttls`, and your relay username and password. Fill in **From address** with a real address on your domain (e.g. `power@laseleka.com`) when the relay username is not an email address, otherwise the server refuses the message. Untick *Verify server certificate* only for a self-signed certificate. Select recipients and press **Test email to selected**; a failure shows the reason (wrong username/password, untrusted certificate, missing From address). The password is stored on the server and never sent back to the browser.
+Open **Email server** in the page: server, port `587`, security `starttls`, and your relay username and password. Fill in **From address** with a real address on your domain (e.g. `power@example.com`) when the relay username is not an email address, otherwise the server refuses the message. Untick *Verify server certificate* only for a self-signed certificate. Select recipients and press **Test email to selected**; a failure shows the reason (wrong username/password, untrusted certificate, missing From address). The password is stored on the server and never sent back to the browser.
 
 ### Blank page or old screens after an update?
 The app tells browsers to always check for new files, but a browser that cached an older version before this fix may still show it once. Reload with **Cmd+Option+R** (Safari) or **Ctrl+Shift+R** (Chrome/Edge/Firefox). If the server is not running, the login screen now says so instead of staying blank.

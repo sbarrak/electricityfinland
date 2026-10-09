@@ -41,7 +41,7 @@ DEFAULTS = {
     "msg_low": "🟢 Low price {price} c/kWh · {weekday} {date} {time}–{end} ({duration}) · limit {limit}",
     "msg_summary": "📅 Prices {from} – {to}: avg {avg}, min {min} at {min_time}, max {max} at {max_time} c/kWh ({basis})",
     # email server (SMTP relay); SMTP_* env vars are used when a field is empty
-    "smtp_host": env("host", "mail.laseleka.com"), "smtp_port": int(env("port", "587") or 587),
+    "smtp_host": env("host"), "smtp_port": int(env("port", "587") or 587),
     "smtp_security": env("security", "starttls"), "smtp_verify": env("verify", "true").lower() != "false",
     "smtp_user": env("user"), "smtp_pass": env("pass"), "smtp_from": env("from"),
 }
