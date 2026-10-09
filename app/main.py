@@ -333,7 +333,6 @@ if not kv_get("secret"):
     kv_set("secret", os.urandom(32).hex())
 SECRET = (os.getenv("SECRET_KEY") or kv_get("secret")).encode()
 SESSION_DAYS = 30
-FAILS: dict[str, list[float]] = {}
 
 
 def sign(msg):
@@ -374,15 +373,12 @@ app = FastAPI(lifespan=lifespan, docs_url=None, redoc_url=None)
 
 @app.post("/api/login")
 async def login(body: dict, request: Request, response: Response):
-    ip = request.headers.get("x-real-ip") or request.client.host
-    FAILS[ip] = [t for t in FAILS.get(ip, []) if t > time.time() - 900]
-    if len(FAILS[ip]) >= 5:
-        raise HTTPException(429, "too many attempts, wait 15 min")
+    if "username" not in body:  # an old cached page sends only a password
+        raise HTTPException(400, "This page is outdated: reload it (Safari: Cmd+Option+R, others: Ctrl+Shift+R)")
     a = kv_get("account")
-    user_ok = hmac.compare_digest(str(body.get("username", "")).strip().encode(), a["username"].encode())
+    user_ok = hmac.compare_digest(str(body["username"]).strip().lower().encode(), a["username"].lower().encode())
     pw_ok = hmac.compare_digest(hash_pw(str(body.get("password", "")), a["salt"]), a["hash"])
     if not (user_ok and pw_ok):
-        FAILS[ip].append(time.time())
         raise HTTPException(401, "wrong username or password")
     set_session(request, response, a)
     return {"username": a["username"], "must_change": a["must_change"]}
@@ -479,5 +475,12 @@ async def test_notify(body: dict | None = None):
 
 
 # Local run without nginx: serve the web page from ../web (in Docker nginx does this)
+class NoCacheStatic(StaticFiles):  # always revalidate, so a browser never mixes old and new page files
+    async def get_response(self, path, scope):
+        response = await super().get_response(path, scope)
+        response.headers["Cache-Control"] = "no-cache"
+        return response
+
+
 if (ROOT / "web").is_dir():
-    app.mount("/", StaticFiles(directory=ROOT / "web", html=True), name="web")
+    app.mount("/", NoCacheStatic(directory=ROOT / "web", html=True), name="web")

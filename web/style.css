@@ -92,3 +92,4 @@ footer{margin-top:16px}
   #who{margin-left:0}
 }
 .grid label.sw{display:flex;color:var(--fg);font-size:1em}
+.fatal{position:sticky;top:0;z-index:10;background:var(--hi);color:#fff;padding:10px 14px;border-radius:10px;margin-bottom:10px;font-size:.9em}

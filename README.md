@@ -76,6 +76,9 @@ Use HTTPS: the login cookie is marked `Secure` when the proxy forwards `X-Forwar
 ### Email server
 Open **Email server** in the page: server (default `mail.laseleka.com`), port `587`, security `starttls`, and your relay username and password. Untick *Verify server certificate* only for a self-signed certificate. Press **Test email** (it is sent to every recipient with Email ticked). The password is stored on the server and never sent back to the browser.
 
+### Blank page or old screens after an update?
+The app tells browsers to always check for new files, but a browser that cached an older version before this fix may still show it once. Reload with **Cmd+Option+R** (Safari) or **Ctrl+Shift+R** (Chrome/Edge/Firefox). If the server is not running, the login screen now says so instead of staying blank.
+
 ### Forgot the login?
 Add `RESET_ADMIN=1` to `.env`, restart once, log in with `admin` / `admin`, choose new credentials, then remove the line.
 

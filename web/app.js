@@ -1,4 +1,7 @@
 const $ = (s, el = document) => el.querySelector(s);
+const fatal = msg => { const f = document.getElementById('fatal'); f.textContent = '⚠ ' + msg; f.classList.remove('hidden'); };
+addEventListener('error', e => fatal(`${e.message} (${(e.filename || '').split('/').pop()}:${e.lineno}). Try reloading the page.`));
+addEventListener('unhandledrejection', e => fatal(String(e.reason?.message || e.reason)));
 const $$ = (s, el = document) => [...el.querySelectorAll(s)];
 const store = (k, v) => { try { return v === undefined ? localStorage.getItem(k) : localStorage.setItem(k, v); } catch { return null; } };
 const LOCAL = window.LOCAL;  // set by local.js when opened as a file
@@ -86,7 +89,7 @@ async function api(path, opts = {}) {
   if (!r.ok) throw new Error(j.detail || r.statusText);
   return j;
 }
-const screen = name => ['login', 'change', 'main'].forEach(n => $('#' + n).classList.toggle('hidden', n !== name));
+const screen = name => ['loading', 'login', 'change', 'main'].forEach(n => $('#' + n).classList.toggle('hidden', n !== name));
 function openChange(forced) {
   $('#changeCancel').classList.toggle('hidden', forced);
   $('#changeHint').classList.toggle('hidden', !forced);
@@ -96,7 +99,13 @@ function openChange(forced) {
 }
 async function boot() {
   let me;
-  try { me = await api('me'); } catch { return; }
+  try { me = await api('me'); } catch (e) {
+    if (e.message !== 'login required') {  // server not running or not reachable
+      screen('login');
+      $('#loginErr').textContent = 'Cannot reach the server. Is it running? (' + e.message + ')';
+    }
+    return;
+  }
   if (me.must_change) return openChange(true);
   $('#who').textContent = '👤 ' + me.username;
   screen('main');
@@ -178,7 +187,7 @@ $$('[data-z]').forEach(b => b.onclick = () => {
 
 // ---------------------------------------------------------------- data and chart
 async function load(days = loadedDays) {
-  try { D = await api('data?days_back=' + days); } catch { return; }
+  try { D = await api('data?days_back=' + days); } catch (e) { if (e.message !== 'login required') flash('Cannot load data: ' + e.message); return; }
   loadedDays = Math.max(days, 60); S = D.settings;
   if (!filled) { fillSettings(); filled = true; }
   if (!view) view = defaultView();
@@ -287,6 +296,7 @@ const overlay = {
 
 function build() {
   if (!D) return;
+  if (typeof Chart === 'undefined') { renderCards(); status(); return fatal('The chart library could not be loaded. Check the internet connection and reload.'); }
   chart?.destroy();
   renderCards();
   const grid = { color: css('--grid') }, ticks = { color: css('--muted') }, small = innerWidth < 600;

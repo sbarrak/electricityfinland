@@ -7,9 +7,11 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="theme-color" content="#0f172a">
 <title>Electricity Finland</title>
-<link rel="stylesheet" href="style.css">
+<link rel="stylesheet" href="style.css?v=3">
 </head>
 <body>
+<div id="fatal" class="fatal hidden"></div>
+<div id="loading" class="screen"><p class="hint">Loading…</p></div>
 <div id="login" class="screen hidden">
   <form id="loginForm" class="card">
     <h1>⚡ Electricity Finland</h1>
@@ -125,8 +127,8 @@
 
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns@3.0.0/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
-<script src="costs.js"></script>
-<script src="local.js"></script>
-<script src="app.js"></script>
+<script src="costs.js?v=3"></script>
+<script src="local.js?v=3"></script>
+<script src="app.js?v=3"></script>
 </body>
 </html>
