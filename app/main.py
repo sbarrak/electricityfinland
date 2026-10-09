@@ -23,21 +23,25 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(mess
 
 TZ = ZoneInfo("Europe/Helsinki")
 VAT_FEED = 1.255  # VAT included in the public feeds (porssisahko, forecast)
-APP_PASSWORD = os.environ["APP_PASSWORD"]
-SECRET = (os.getenv("SECRET_KEY") or APP_PASSWORD).encode()
 FINGRID_KEY = os.getenv("FINGRID_API_KEY", "")
-SMTP = {k: os.getenv("SMTP_" + k.upper(), "") for k in ("host", "port", "security", "verify", "user", "pass", "from")}
+HISTORY_DAYS = 366
 NPF = "https://raw.githubusercontent.com/vividfog/nordpool-predict-fi/main/deploy/"
+env = lambda k, d="": os.getenv("SMTP_" + k.upper(), d)
 
 # Fee fields are c/kWh incl. VAT (as on Finnish invoices); monthly fees in EUR.
 DEFAULTS = {
     "vat": 25.5, "margin": 0.0, "transfer_day": 0.0, "transfer_night": 0.0,
     "night_start": 22, "night_end": 7, "tax": 2.827, "other": 0.0,
     "monthly_provider": 0.0, "monthly_transfer": 0.0, "monthly_kwh": 0.0, "spread_monthly": False,
-    "alarm_basis": "total", "high_on": False, "high": 20.0, "low_on": False, "low": 2.0,
+    "alarm_basis": "total", "alarm_vat": True, "high_on": False, "high": 20.0, "low_on": False, "low": 2.0,
     "hysteresis": 0.5, "summary_on": True, "quiet_start": -1, "quiet_end": -1,
-    "wa_on": False, "wa_phone": "", "wa_apikey": "", "email_on": False, "email_to": "",
+    "wa_on": False, "email_on": False, "recipients": [],
+    # email server (SMTP relay); SMTP_* env vars are used when a field is empty
+    "smtp_host": env("host", "mail.laseleka.com"), "smtp_port": int(env("port", "587") or 587),
+    "smtp_security": env("security", "starttls"), "smtp_verify": env("verify", "true").lower() != "false",
+    "smtp_user": env("user"), "smtp_pass": env("pass"), "smtp_from": env("from"),
 }
+SECRET_FIELDS = ("smtp_pass",)
 
 db = sqlite3.connect(os.getenv("DB_PATH", "/data/app.db"), check_same_thread=False)
 db.executescript("""
@@ -58,8 +62,22 @@ def kv_set(k, v):
     db.commit()
 
 
+def clean_recipient(r):
+    g = lambda k, n=200: str(r.get(k, "") or "").strip()[:n]
+    return {"name": g("name", 60), "phone": g("phone", 30), "apikey": g("apikey", 60), "email": g("email"),
+            "wa": bool(r.get("wa")), "mail": bool(r.get("mail"))}
+
+
 def settings():
-    return {**DEFAULTS, **kv_get("settings", {})}
+    s = {**DEFAULTS, **kv_get("settings", {})}
+    if not s["recipients"] and (s.get("wa_phone") or s.get("email_to")):  # migrate single-recipient settings
+        s["recipients"] = [clean_recipient({"name": "Me", "phone": s.get("wa_phone"), "apikey": s.get("wa_apikey"),
+                                            "email": s.get("email_to"), "wa": True, "mail": True})]
+    return s
+
+
+def public(s):  # never send stored secrets back to the browser
+    return {**s, **{k: "" for k in SECRET_FIELDS}, **{k + "_set": bool(s[k]) for k in SECRET_FIELDS}}
 
 
 def ts_of(iso):
@@ -70,15 +88,17 @@ def ex_vat(v):  # strip feed VAT (VAT is not applied to negative prices)
     return v / VAT_FEED if v > 0 else v
 
 
-def costs(s, ts, spot):
-    """spot c/kWh excl. VAT -> (spot incl. VAT, total incl. all fees)."""
-    sv = spot * (1 + s["vat"] / 100) if spot > 0 else spot
+def value(s, ts, spot, kind="total", vat=True):
+    """spot c/kWh excl. VAT -> c/kWh for kind spot|transfer|total. Mirrors web/costs.js."""
+    k = 1 + s["vat"] / 100
     h, ns, ne = datetime.fromtimestamp(ts, TZ).hour, s["night_start"], s["night_end"]
     night = (h >= ns or h < ne) if ns > ne else (ns <= h < ne)
-    total = sv + s["margin"] + s["tax"] + s["other"] + (s["transfer_night"] if night else s["transfer_day"])
-    if s["spread_monthly"] and s["monthly_kwh"] > 0:
-        total += (s["monthly_provider"] + s["monthly_transfer"]) * 100 / s["monthly_kwh"]
-    return round(sv, 3), round(total, 3)
+    per = 100 / s["monthly_kwh"] if s["spread_monthly"] and s["monthly_kwh"] > 0 else 0
+    transfer = (s["transfer_night"] if night else s["transfer_day"]) + s["tax"] + s["monthly_transfer"] * per
+    energy = s["margin"] + s["other"] + s["monthly_provider"] * per
+    sp = (spot * k if spot > 0 else spot) if vat else spot
+    f = 1 if vat else 1 / k
+    return round(sp if kind == "spot" else transfer * f if kind == "transfer" else sp + (transfer + energy) * f, 3)
 
 
 def upsert(table, rows, src=None):
@@ -104,13 +124,32 @@ async def fetch_prices(c):
     log.info("prices: %d rows", upsert("prices", rows))
 
 
-async def fetch_forecasts(c):
+async def backfill(c):
+    """Load up to a year of hourly history (sahkotin.fi, EUR/MWh excl. VAT) without overwriting 15-min data."""
+    first = db.execute("SELECT MIN(ts) FROM prices").fetchone()[0] or time.time()
+    start = time.time() - HISTORY_DAYS * 86400
+    if first - start < 2 * 86400:
+        return
+    iso = lambda t: datetime.fromtimestamp(t, TZ).isoformat()
+    r = await c.get("https://sahkotin.fi/prices", params={"start": iso(start), "end": iso(first)})
+    r.raise_for_status()
+    rows = [(ts_of(x["date"]), x["value"] / 10) for x in r.json()["prices"]]
+    db.executemany("INSERT OR IGNORE INTO prices VALUES(?,?)", rows)
+    db.commit()
+    log.info("history backfill: %d rows", len(rows))
+
+
+async def fetch_forecasts(c, fingrid=True):
+    # keep only estimates for slots without a published price, so past estimates stay as they were before bidding
+    last = db.execute("SELECT MAX(ts) FROM prices").fetchone()[0] or 0
     for name, table in (("prediction.json", "forecast"), ("windpower.json", "wind")):
         r = await c.get(NPF + name)
         r.raise_for_status()
-        rows = [(int(t / 1000), ex_vat(v) if table == "forecast" else v) for t, v in r.json()]
-        upsert(table, rows, None if table == "forecast" else "npf")
-    if FINGRID_KEY:  # 245 = wind forecast (15 min), 75 = wind production actual
+        if table == "forecast":
+            upsert(table, [(int(t / 1000), ex_vat(v)) for t, v in r.json() if t / 1000 > last])
+        else:
+            upsert(table, [(int(t / 1000), v) for t, v in r.json()], "npf")
+    if FINGRID_KEY and fingrid:  # 245 = wind forecast (15 min), 75 = wind production actual
         now = datetime.now(TZ)
         for ds, src, a, b in ((245, "fingrid", now - timedelta(hours=2), now + timedelta(days=3)),
                               (75, "actual", now - timedelta(days=7), now)):
@@ -119,52 +158,59 @@ async def fetch_forecasts(c):
             r.raise_for_status()
             upsert("wind", [(ts_of(x["startTime"]), x["value"]) for x in r.json()["data"]], src)
             await asyncio.sleep(7)  # Fingrid allows 10 requests/min
-    cutoff = time.time() - 90 * 86400
+    cutoff = time.time() - (HISTORY_DAYS + 5) * 86400
     for t in ("prices", "forecast", "wind"):
         db.execute(f"DELETE FROM {t} WHERE ts<?", (cutoff,))
     db.commit()
 
 
 # ---------------------------------------------------------------- notifications
-def send_mail(to, subject, text):
+def send_mail(s, to, subject, text):
     msg = EmailMessage()
-    msg["From"], msg["To"], msg["Subject"] = SMTP["from"] or SMTP["user"], to, subject
+    msg["From"], msg["To"], msg["Subject"] = s["smtp_from"] or s["smtp_user"], to, subject
     msg.set_content(text)
     ctx = ssl.create_default_context()
-    if SMTP["verify"].lower() == "false":
+    if not s["smtp_verify"]:
         ctx.check_hostname, ctx.verify_mode = False, ssl.CERT_NONE
-    port, sec = int(SMTP["port"] or 587), SMTP["security"] or "starttls"
-    with (smtplib.SMTP_SSL(SMTP["host"], port, context=ctx, timeout=20) if sec == "ssl"
-          else smtplib.SMTP(SMTP["host"], port, timeout=20)) as smtp:
+    port, sec = int(s["smtp_port"] or 587), s["smtp_security"] or "starttls"
+    with (smtplib.SMTP_SSL(s["smtp_host"], port, context=ctx, timeout=20) if sec == "ssl"
+          else smtplib.SMTP(s["smtp_host"], port, timeout=20)) as smtp:
         if sec == "starttls":
             smtp.starttls(context=ctx)
-        if SMTP["user"]:
-            smtp.login(SMTP["user"], SMTP["pass"])
+        if s["smtp_user"]:
+            smtp.login(s["smtp_user"], s["smtp_pass"])
         smtp.send_message(msg)
 
 
-async def notify(c, s, text, force=False):
+async def notify(c, s, text, force=None):
+    """Send to all recipients. force: None = alarm (respects switches), 'all' | 'whatsapp' | 'email' = test."""
     out = {}
-    if s["wa_on"] or force:
-        if s["wa_phone"] and s["wa_apikey"]:
-            try:
-                r = await c.get("https://api.callmebot.com/whatsapp.php",
-                                params={"phone": s["wa_phone"], "text": text, "apikey": s["wa_apikey"]})
-                ok = r.status_code == 200 and "error" not in r.text.lower()
-                out["whatsapp"] = "sent" if ok else f"failed: {r.status_code} {r.text[:120]}"
-            except Exception as e:
-                out["whatsapp"] = f"failed: {e}"
-        else:
-            out["whatsapp"] = "missing phone or API key"
-    if s["email_on"] or force:
-        if s["email_to"] and SMTP["host"]:
-            try:
-                await asyncio.to_thread(send_mail, s["email_to"], "Electricity price alert", text)
-                out["email"] = "sent"
-            except Exception as e:
-                out["email"] = f"failed: {e}"
-        else:
-            out["email"] = "missing recipient or SMTP_HOST"
+    wa = force in ("all", "whatsapp") or (force is None and s["wa_on"])
+    em = force in ("all", "email") or (force is None and s["email_on"])
+    for r in s["recipients"]:
+        who = r["name"] or r["phone"] or r["email"]
+        if wa and r["wa"] and r["phone"]:
+            if not r["apikey"]:
+                out[f"{who} WhatsApp"] = "missing CallMeBot API key"
+            else:
+                try:
+                    res = await c.get("https://api.callmebot.com/whatsapp.php",
+                                      params={"phone": r["phone"], "text": text, "apikey": r["apikey"]})
+                    ok = res.status_code == 200 and "error" not in res.text.lower()
+                    out[f"{who} WhatsApp"] = "sent" if ok else f"failed: {res.status_code} {res.text[:120]}"
+                except Exception as e:
+                    out[f"{who} WhatsApp"] = f"failed: {e}"
+        if em and r["mail"] and r["email"]:
+            if not s["smtp_host"]:
+                out[f"{who} email"] = "email server not configured"
+            else:
+                try:
+                    await asyncio.to_thread(send_mail, s, r["email"], "Electricity price alert", text)
+                    out[f"{who} email"] = "sent"
+                except Exception as e:
+                    out[f"{who} email"] = f"failed: {e}"
+    if not out:
+        out["info"] = "no recipient has this channel enabled"
     log.info("notify %s -> %s", text[:60], out)
     return out
 
@@ -178,8 +224,11 @@ def in_quiet(s):
 
 
 def price_of(s, ts, spot):
-    sv, tot = costs(s, ts, spot)
-    return tot if s["alarm_basis"] == "total" else sv
+    return value(s, ts, spot, s["alarm_basis"], s["alarm_vat"])
+
+
+def basis(s):
+    return s["alarm_basis"] + (" incl. VAT" if s["alarm_vat"] else " excl. VAT")
 
 
 def fmt(ts):
@@ -197,7 +246,7 @@ def check_alarms(s):
     ):
         if on and trig and not st.get(kind):
             st[kind] = True
-            msgs.append(f"⚡ Price {word} {s[kind]} c/kWh: now {p:.2f} c/kWh ({fmt(row[0])}, {s['alarm_basis']})")
+            msgs.append(f"⚡ Price {word} {s[kind]} c/kWh: now {p:.2f} c/kWh ({fmt(row[0])}, {basis(s)})")
         elif st.get(kind) and (clear or not on):
             st[kind] = False
     kv_set("alarm_state", st)
@@ -229,7 +278,7 @@ def daily_summary(s):
     kv_set("summary_date", key)
     ps = [p for _, p in rows]
     lo, hi = min(rows, key=lambda r: r[1]), max(rows, key=lambda r: r[1])
-    msg = (f"📅 Tomorrow {day0:%d.%m.} ({s['alarm_basis']}): avg {sum(ps)/len(ps):.2f}, "
+    msg = (f"📅 Tomorrow {day0:%d.%m.} ({basis(s)}): avg {sum(ps)/len(ps):.2f}, "
            f"min {lo[1]:.2f} @{fmt(lo[0])}, max {hi[1]:.2f} @{fmt(hi[0])} c/kWh")
     if s["high_on"] and (w := windows(rows, lambda p: p >= s["high"])):
         msg += f"\n🔴 ≥{s['high']}: {w}"
@@ -245,12 +294,13 @@ def has_tomorrow():
 
 
 async def worker():
-    last = {"p": 0, "f": 0}
+    last = {"p": 0, "f": 0, "h": 0}
     async with httpx.AsyncClient(timeout=30, headers={"User-Agent": "electricityfinland/1.0"}) as c:
         while True:
             now = time.time()
             waiting = not has_tomorrow() and datetime.now(TZ).hour >= 13
-            for k, every, fn in (("p", 600 if waiting else 3600, fetch_prices), ("f", 3600, fetch_forecasts)):
+            for k, every, fn in (("p", 600 if waiting else 3600, fetch_prices), ("f", 3600, fetch_forecasts),
+                                 ("h", 86400, backfill)):
                 if now - last[k] > every:
                     last[k] = now
                     try:
@@ -267,6 +317,50 @@ async def worker():
             await asyncio.sleep(60)
 
 
+# ---------------------------------------------------------------- account (single user, admin/admin until changed)
+def hash_pw(pw, salt):
+    return hashlib.pbkdf2_hmac("sha256", pw.encode(), bytes.fromhex(salt), 200_000).hex()
+
+
+def new_account(username, password, must_change, gen=0):
+    salt = os.urandom(16).hex()
+    return {"username": username, "salt": salt, "hash": hash_pw(password, salt), "must_change": must_change, "gen": gen}
+
+
+if os.getenv("RESET_ADMIN") == "1" or not kv_get("account"):  # first start, or forgotten password
+    kv_set("account", new_account("admin", "admin", True, (kv_get("account") or {}).get("gen", 0) + 1))
+if not kv_get("secret"):
+    kv_set("secret", os.urandom(32).hex())
+SECRET = (os.getenv("SECRET_KEY") or kv_get("secret")).encode()
+SESSION_DAYS = 30
+FAILS: dict[str, list[float]] = {}
+
+
+def sign(msg):
+    return hmac.new(SECRET, msg.encode(), hashlib.sha256).hexdigest()
+
+
+def set_session(request, response, a):
+    exp = int(time.time()) + SESSION_DAYS * 86400
+    token = f"{exp}.{a['gen']}"
+    response.set_cookie("session", f"{token}.{sign(token)}",
+                        max_age=SESSION_DAYS * 86400, httponly=True, samesite="strict",
+                        secure=request.headers.get("x-forwarded-proto") == "https")
+
+
+def auth_any(request: Request):  # logged in (may still have to change the default credentials)
+    exp, gen, sig = (request.cookies.get("session", "").split(".") + ["", "", ""])[:3]
+    if not (exp.isdigit() and int(exp) > time.time() and gen == str(kv_get("account")["gen"])
+            and hmac.compare_digest(sig, sign(f"{exp}.{gen}"))):
+        raise HTTPException(401, "login required")
+
+
+def auth(request: Request):
+    auth_any(request)
+    if kv_get("account")["must_change"]:
+        raise HTTPException(403, "change the default username and password first")
+
+
 # ---------------------------------------------------------------- web api
 @asynccontextmanager
 async def lifespan(_):
@@ -276,18 +370,6 @@ async def lifespan(_):
 
 
 app = FastAPI(lifespan=lifespan, docs_url=None, redoc_url=None)
-FAILS: dict[str, list[float]] = {}
-SESSION_DAYS = 30
-
-
-def sign(exp):
-    return hmac.new(SECRET, str(exp).encode(), hashlib.sha256).hexdigest()
-
-
-def auth(request: Request):
-    exp, _, sig = request.cookies.get("session", "").partition(".")
-    if not (exp.isdigit() and int(exp) > time.time() and hmac.compare_digest(sig, sign(exp))):
-        raise HTTPException(401, "login required")
 
 
 @app.post("/api/login")
@@ -296,13 +378,36 @@ async def login(body: dict, request: Request, response: Response):
     FAILS[ip] = [t for t in FAILS.get(ip, []) if t > time.time() - 900]
     if len(FAILS[ip]) >= 5:
         raise HTTPException(429, "too many attempts, wait 15 min")
-    if not hmac.compare_digest(str(body.get("password", "")).encode(), APP_PASSWORD.encode()):
+    a = kv_get("account")
+    user_ok = hmac.compare_digest(str(body.get("username", "")).strip().encode(), a["username"].encode())
+    pw_ok = hmac.compare_digest(hash_pw(str(body.get("password", "")), a["salt"]), a["hash"])
+    if not (user_ok and pw_ok):
         FAILS[ip].append(time.time())
-        raise HTTPException(401, "wrong password")
-    exp = int(time.time()) + SESSION_DAYS * 86400
-    response.set_cookie("session", f"{exp}.{sign(exp)}", max_age=SESSION_DAYS * 86400, httponly=True,
-                        samesite="strict", secure=request.headers.get("x-forwarded-proto") == "https")
-    return {"ok": True}
+        raise HTTPException(401, "wrong username or password")
+    set_session(request, response, a)
+    return {"username": a["username"], "must_change": a["must_change"]}
+
+
+@app.get("/api/me", dependencies=[Depends(auth_any)])
+async def me():
+    a = kv_get("account")
+    return {"username": a["username"], "must_change": a["must_change"]}
+
+
+@app.post("/api/account", dependencies=[Depends(auth_any)])
+async def change_account(body: dict, request: Request, response: Response):
+    a = kv_get("account")
+    if not hmac.compare_digest(hash_pw(str(body.get("password", "")), a["salt"]), a["hash"]):
+        raise HTTPException(400, "current password is wrong")
+    user, pw = str(body.get("new_username", "")).strip(), str(body.get("new_password", ""))
+    if len(user) < 3 or len(pw) < 8:
+        raise HTTPException(400, "username needs at least 3 characters and password at least 8")
+    if user.lower() == "admin" or pw == "admin":
+        raise HTTPException(400, "choose a username and password different from admin/admin")
+    a = new_account(user, pw, False, a["gen"] + 1)  # new gen logs out other sessions
+    kv_set("account", a)
+    set_session(request, response, a)
+    return {"username": user, "must_change": False}
 
 
 @app.post("/api/logout")
@@ -312,42 +417,65 @@ async def logout(response: Response):
 
 
 @app.get("/api/data", dependencies=[Depends(auth)])
-async def data(days_back: int = 1):
-    s, start = settings(), time.time() - max(1, min(days_back, 60)) * 86400
+async def data(days_back: int = 60):
+    start = time.time() - max(1, min(days_back, HISTORY_DAYS)) * 86400
     q = lambda sql, *a: db.execute(sql, a).fetchall()
-    actual = [[t, *costs(s, t, v)] for t, v in q("SELECT ts, spot FROM prices WHERE ts>=? ORDER BY ts", start)]
-    last = actual[-1][0] if actual else 0
-    fc = [[t, *costs(s, t, v)] for t, v in q("SELECT ts, spot FROM forecast WHERE ts>? ORDER BY ts", max(last, start))]
     fg = dict(q("SELECT ts, mw FROM wind WHERE src='fingrid' AND ts>=?", start))
     fg_end = max(fg) if fg else 0
     wind = sorted({**{t: v for t, v in q("SELECT ts, mw FROM wind WHERE src='npf' AND ts>=?", start)
                       if t > fg_end or not fg}, **fg}.items())
-    act = q("SELECT ts, mw FROM wind WHERE src='actual' AND ts>=? ORDER BY ts", start)
-    return {"actual": actual, "forecast": fc, "wind": wind, "wind_actual": act, "settings": s,
-            "smtp": bool(SMTP["host"]), "fingrid": bool(FINGRID_KEY)}
+    return {"actual": q("SELECT ts, spot FROM prices WHERE ts>=? ORDER BY ts", start),  # c/kWh excl. VAT
+            "forecast": q("SELECT ts, spot FROM forecast WHERE ts>=? ORDER BY ts", start),
+            "wind": wind, "wind_actual": q("SELECT ts, mw FROM wind WHERE src='actual' AND ts>=? ORDER BY ts", start),
+            "settings": public(settings()), "fingrid": bool(FINGRID_KEY)}
+
+
+LAST_REFRESH = [0.0]
+
+
+@app.post("/api/refresh", dependencies=[Depends(auth)])
+async def refresh():
+    if time.time() - LAST_REFRESH[0] < 30:
+        raise HTTPException(429, "refreshed less than 30 s ago")
+    LAST_REFRESH[0], out = time.time(), {}
+    async with httpx.AsyncClient(timeout=30, headers={"User-Agent": "electricityfinland/1.0"}) as c:
+        for name, fn in (("prices", fetch_prices), ("forecast", lambda c: fetch_forecasts(c, fingrid=False))):
+            try:
+                await fn(c)
+                out[name] = "ok"
+            except Exception as e:
+                out[name] = f"failed: {e}"
+    return out
 
 
 @app.put("/api/settings", dependencies=[Depends(auth)])
 async def put_settings(body: dict):
     s = settings()
     for k, v in body.items():
-        if k in DEFAULTS:
-            d = DEFAULTS[k]
-            try:
+        if k not in DEFAULTS or (k in SECRET_FIELDS and not v):  # empty secret = keep the stored one
+            continue
+        d = DEFAULTS[k]
+        try:
+            if isinstance(d, list):
+                s[k] = [clean_recipient(r) for r in v[:20] if isinstance(r, dict)]
+            else:
                 s[k] = bool(v) if isinstance(d, bool) else type(d)(v)
-            except (TypeError, ValueError):
-                raise HTTPException(400, f"invalid value for {k}")
-    if s["alarm_basis"] not in ("total", "spot"):
-        raise HTTPException(400, "alarm_basis must be total or spot")
-    kv_set("settings", s)
+        except (TypeError, ValueError):
+            raise HTTPException(400, f"invalid value for {k}")
+    if s["alarm_basis"] not in ("total", "spot", "transfer") or s["smtp_security"] not in ("starttls", "ssl", "none"):
+        raise HTTPException(400, "invalid alarm basis or email security")
+    kv_set("settings", {k: v for k, v in s.items() if k in DEFAULTS})
     kv_set("alarm_state", {})  # re-evaluate alarms with new thresholds
-    return s
+    return public(s)
 
 
 @app.post("/api/test-notify", dependencies=[Depends(auth)])
-async def test_notify():
+async def test_notify(body: dict | None = None):
+    channel = (body or {}).get("channel", "all")
+    if channel not in ("all", "whatsapp", "email"):
+        raise HTTPException(400, "channel must be all, whatsapp or email")
     async with httpx.AsyncClient(timeout=30) as c:
-        return await notify(c, settings(), "✅ Test message from Electricity Finland", force=True)
+        return await notify(c, settings(), "✅ Test message from Electricity Finland", force=channel)
 
 
 # Local run without nginx: serve the web page from ../web (in Docker nginx does this)

@@ -51,3 +51,44 @@ footer{margin-top:16px}
   .chartwrap{height:340px}
   .cards{grid-template-columns:repeat(2,1fr)} .cards .stat:first-child{grid-column:1/-1}
 }
+/* v2: screens, toolbar, zoomable chart, recipients */
+:root{--grid-strong:#94a3b8}
+@media (prefers-color-scheme:dark){:root{--grid-strong:#475569}}
+.screen{min-height:90vh;display:grid;place-items:center}
+.screen form{display:grid;gap:12px;width:min(360px,100%)}
+.screen h1{font-size:1.15rem}
+.chartcard{padding:10px 12px}
+.tabs{display:flex;gap:4px;margin-bottom:8px;border-bottom:1px solid var(--line)}
+.tabs button{background:transparent;color:var(--muted);border-radius:10px 10px 0 0;min-height:36px;font-weight:500}
+.tabs button.on{color:var(--accent);box-shadow:inset 0 -2px 0 var(--accent)}
+.toolbar{display:flex;flex-wrap:wrap;gap:8px 12px;align-items:center;margin-bottom:8px}
+.toolbar .date{display:inline-flex;gap:6px;align-items:center;color:var(--muted);font-size:.85em}
+.toolbar input[type=date]{min-height:36px;padding:4px 8px}
+.toolbar select{min-height:36px;padding:4px 8px}
+.zoom{display:inline-flex;gap:4px;align-items:center;margin-left:auto}
+.zoom button{min-height:36px;min-width:36px;padding:4px 10px;background:var(--bg);color:var(--fg);border:1px solid var(--line)}
+.zoom span{color:var(--muted);margin-right:6px}
+.plot{display:flex;gap:4px}
+.plot .chartwrap{flex:1;min-width:0;padding:0}
+.chartwrap canvas{touch-action:pan-y}
+.vscroll{width:14px;overflow-y:scroll;overflow-x:hidden;height:clamp(300px,55vh,560px)}
+.vscroll>div{width:1px}
+.vscroll.off{visibility:hidden}
+.hscroll{overflow-x:scroll;overflow-y:hidden;height:16px;margin-top:4px}
+.hscroll>div{height:1px}
+.hscroll,.vscroll{scrollbar-width:auto;scrollbar-color:var(--line) transparent}
+.hscroll::-webkit-scrollbar,.vscroll::-webkit-scrollbar{height:12px;width:12px}
+.hscroll::-webkit-scrollbar-thumb,.vscroll::-webkit-scrollbar-thumb{background:var(--line);border-radius:6px}
+.recip{display:grid;grid-template-columns:1fr 1.2fr 1fr 1.4fr auto auto auto;gap:8px;align-items:center;margin:8px 0}
+.recip input{min-width:0;width:100%}
+.recip .del{min-height:36px;padding:4px 10px}
+.settings .card.wide{grid-column:1/-1}
+.tests{display:flex;flex-wrap:wrap;gap:8px;margin-top:8px}
+#who{margin-left:auto}
+@media (max-width:900px){.recip{grid-template-columns:1fr 1fr;border-bottom:1px solid var(--line);padding-bottom:8px}}
+@media (max-width:600px){
+  .zoom{margin-left:0}
+  .vscroll{height:340px}
+  #who{margin-left:0}
+}
+.grid label.sw{display:flex;color:var(--fg);font-size:1em}

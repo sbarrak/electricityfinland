@@ -3,6 +3,16 @@
 Self-hosted monitor for Finnish electricity spot prices (Nord Pool day-ahead, 15-min), price estimates for the coming week, and wind power forecasts — with WhatsApp / email alarms. Runs in Docker on a NAS behind a reverse proxy.
 
 ## Features
+- **Zoomable chart**: hours on the axis with the day below, 15-minute steps at the closest zoom and up to one point per day when zoomed out. Opens on today −3 days … +2 days.
+  - Zoom: pinch on the trackpad (or Ctrl + mouse wheel), pinch on iPad/iPhone, or the − / + buttons (⇔ time, ⇕ price). **Reset** returns to the default view.
+  - Move: scroll bars under and beside the chart, two-finger swipe on the trackpad, or drag sideways on a touch screen.
+  - **From / To** dates and presets (last week, month, 3 months, year). **Average** shows the average price of the visible period as a line.
+  - **Spot / Transfer / Total cost** buttons with an **Incl. VAT** checkbox. Transfer = transfer fee + electricity tax.
+  - **Estimate vs actual** checkbox adds a tab comparing the estimate made *before* the price was published with the real price, with the average error.
+- **⟳ Refresh prices** fetches the latest prices immediately. Up to a year of past prices is loaded from [sahkotin.fi](https://sahkotin.fi).
+- **Login**: the first login is `admin` / `admin`; you must then pick your own username and password (Account button to change it later).
+- **Several recipients**, each with their own WhatsApp number (CallMeBot key) and/or email. Test buttons for all, WhatsApp only and email only.
+- **Email server menu** for your SMTP relay (server, port, STARTTLS/SSL, username, password) with a test button.
 - **Chart**: published Nord Pool day-ahead prices (solid), estimated prices beyond tomorrow (dashed), wind power forecast + actuals (MW, right axis), "now" line and alarm thresholds. Bars turn red/green when above/below your thresholds.
 - **Spot + VAT / Total cost** toggle. Total = spot + VAT + provider margin + transfer (day/night) + electricity tax + other, optionally plus monthly fees spread per kWh.
 - **Alarm bar**: high and low thresholds, on total cost or spot price. One message per crossing (re-arms after the price moves back by the re-arm margin), optional quiet hours, plus a daily summary when tomorrow's prices are published (~14:00) listing the hours above/below your thresholds.
@@ -25,7 +35,7 @@ The estimate is a machine-learning forecast and can be badly off on volatile day
 | Needs | Docker | Python 3.10+ | a browser |
 | Alarms | 24/7 on the server | while the script runs | only while the page is open |
 | Email | your SMTP server (`.env`) | your SMTP server (`.env`) | free [EmailJS](https://www.emailjs.com) account |
-| Login | password | password | none (local only) |
+| Login | admin/admin, then your own | admin/admin, then your own | none (local only) |
 | Settings stored | SQLite on the NAS | SQLite in `./data` | browser localStorage |
 
 All three use the same `web/` page and the Docker and local server use the same `app/main.py`. Without nginx, the Python app serves `web/` itself. Opened from disk (`file://`), `web/local.js` takes over the backend's job in the browser.
@@ -34,7 +44,7 @@ All three use the same `web/` page and the Docker and local server use the same 
 Behaves exactly like the NAS version, so it's the best way to test before deploying.
 1. Install [Python 3.10+](https://www.python.org/downloads/) (Windows: tick *Add python.exe to PATH*).
 2. Download the repo and double-click **`run.bat`** (Windows) or run **`./run.sh`** (Mac/Linux).
-3. The first start creates `.env` from `.env.example` and installs dependencies into `.venv`. Your browser then opens http://localhost:8000. Log in with `APP_PASSWORD` from `.env` (default `change-me`; edit `.env` and restart to change it, and to add SMTP / Fingrid settings).
+3. The first start creates `.env` from `.env.example` and installs dependencies into `.venv`. Your browser then opens http://localhost:8000. Log in with `admin` / `admin` and choose your own username and password. Set up the email server in the page.
 4. Stop with Ctrl+C or by closing the window. Data is kept in `./data`.
 
 ## Standalone (no Docker)
@@ -42,12 +52,12 @@ Behaves exactly like the NAS version, so it's the best way to test before deploy
 2. Double-click **`ElectricityFinland.html`** (Chrome, Edge, Firefox or Safari; needs internet).
 3. Fill in costs/alarms/notifications and Save. Keep the tab open for alarms. Background tabs are checked once a minute, which is enough.
 
-Email in standalone mode: create a free EmailJS account, add an email service (e.g. Gmail/Outlook), and a template with *To* = `{{to_email}}`, subject `{{subject}}`, body `{{message}}`. Enter the service ID, template ID and public key under **Notifications**. If a data source blocks requests from a local file, the footer shows a ⚠ message.
+Email in standalone mode: create a free EmailJS account, add an email service (e.g. Gmail/Outlook), and a template with *To* = `{{to_email}}`, subject `{{subject}}`, body `{{message}}`. Enter the service ID, template ID and public key under **Email**. If a data source blocks requests from a local file, the footer shows a ⚠ message.
 
 ## Install (Synology / any Docker host)
 ```sh
 git clone https://github.com/sbarrak/electricityfinland.git && cd electricityfinland
-cp .env.example .env   # set APP_PASSWORD, SECRET_KEY, optional SMTP_* and FINGRID_API_KEY
+cp .env.example .env   # optional: FINGRID_API_KEY
 docker compose up -d --build
 ```
 Open `http://<nas-ip>:8088`. On Synology you can also do this in **Container Manager → Project → Create** pointing at the folder.
@@ -61,10 +71,13 @@ Use HTTPS: the login cookie is marked `Secure` when the proxy forwards `X-Forwar
 
 ### WhatsApp (CallMeBot)
 1. Add **+34 644 51 95 23** to your phone contacts, send it the WhatsApp message `I allow callmebot to send me messages`.
-2. You receive an API key. Enter your phone (`+358…`) and the key under **Notifications**, tick **WhatsApp**, press **Send test message**.
+2. You receive an API key. Under **Recipients** press **+ Add recipient**, enter the name, phone (`+358…`) and key, tick **WhatsApp**, then **Test WhatsApp**. Repeat for every person who should get messages (each needs their own key).
 
-### Email (Synology Mail Server)
-Set in `.env`: `SMTP_HOST=<nas-ip>`, `SMTP_PORT=587`, `SMTP_SECURITY=starttls`, `SMTP_USER`, `SMTP_PASS`, `SMTP_FROM`. If the mail server uses a self-signed certificate, set `SMTP_VERIFY=false`. Then enter the recipient in **Notifications**.
+### Email server
+Open **Email server** in the page: server (default `mail.laseleka.com`), port `587`, security `starttls`, and your relay username and password. Untick *Verify server certificate* only for a self-signed certificate. Press **Test email** (it is sent to every recipient with Email ticked). The password is stored on the server and never sent back to the browser.
+
+### Forgot the login?
+Add `RESET_ADMIN=1` to `.env`, restart once, log in with `admin` / `admin`, choose new credentials, then remove the line.
 
 ## Costs
 Enter all per-kWh fees in **c/kWh including VAT**, as they appear on Finnish invoices. Default electricity tax (class I incl. security-of-supply fee) is 2.827 c/kWh. Monthly fees are shown as €/month; tick *Spread monthly fees* and enter your monthly consumption to include them in the total c/kWh.
