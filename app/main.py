@@ -119,6 +119,9 @@ def upsert(table, rows, src=None):
 
 
 # ---------------------------------------------------------------- fetchers
+LAST_FETCH = [0.0]  # last successful price download (worker or Refresh)
+
+
 async def fetch_prices(c):
     try:
         r = await c.get("https://api.spot-hinta.fi/TodayAndDayForward", params={"priceResolution": 15})
@@ -130,6 +133,7 @@ async def fetch_prices(c):
         r.raise_for_status()
         rows = [(ts_of(x["startDate"]), ex_vat(x["price"])) for x in r.json()["prices"]]
     log.info("prices: %d rows", upsert("prices", rows))
+    LAST_FETCH[0] = time.time()
 
 
 async def backfill(c):
@@ -225,7 +229,8 @@ async def notify(c, s, text, force=None):
                 except Exception as e:
                     out[f"{who} email"] = f"failed: {type(e).__name__}: {e}"
     if not out:
-        out["info"] = "no recipient has this channel enabled"
+        out["info"] = {"whatsapp": "the selected recipients have no WhatsApp number",
+                       "email": "the selected recipients have no email address"}.get(force, "no recipient with a WhatsApp number or email address")
     log.info("notify %s -> %s", text[:60], out)
     return out
 
@@ -512,6 +517,17 @@ async def create_user(body: dict, _: dict = Depends(admin)):
     return await list_users(_)
 
 
+@app.post("/api/users/{uid}/password")
+async def reset_password(uid: int, body: dict, me_: dict = Depends(admin)):
+    u, pw = get_user(uid), str(body.get("password", ""))
+    if not u or u["id"] == me_["id"]:
+        raise HTTPException(400, "unknown user (change your own password with Account)")
+    if len(pw) < 8:
+        raise HTTPException(400, "the temporary password needs at least 8 characters")
+    set_password(uid, u["username"], pw, True)  # logs the user out; they choose a new password at next login
+    return await list_users(me_)
+
+
 @app.delete("/api/users/{uid}")
 async def delete_user(uid: int, me_: dict = Depends(admin)):
     if uid == me_["id"]:
@@ -546,7 +562,9 @@ LAST_REFRESH = [0.0]
 
 
 @app.post("/api/refresh", dependencies=[Depends(user)])
-async def refresh():
+async def refresh(body: dict | None = None):
+    if (body or {}).get("auto") and time.time() - LAST_FETCH[0] < 120:  # page just opened and prices are fresh
+        return {"prices": "up to date"}
     if time.time() - LAST_REFRESH[0] < 30:
         raise HTTPException(429, "refreshed less than 30 s ago")
     LAST_REFRESH[0], out = time.time(), {}

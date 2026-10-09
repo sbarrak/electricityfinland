@@ -99,7 +99,7 @@
         }).then(async res => out[who + ' email'] = res.ok ? 'sent' : 'failed: ' + await res.text(), e => out[who + ' email'] = 'failed: ' + e.message);
       }
     }
-    if (!Object.keys(out).length) out.info = 'no recipient has this channel enabled';
+    if (!Object.keys(out).length) out.info = { whatsapp: 'the selected recipients have no WhatsApp number', email: 'the selected recipients have no email address' }[force] || 'no recipient with a WhatsApp number or email address';
     console.info('notify', text, out);
     return out;
   }
@@ -148,7 +148,7 @@
       const [p, q] = path.split('?'), body = opts.body ? JSON.parse(opts.body) : {};
       if (p === 'me') return { username: 'local', must_change: false };
       if (p === 'data') return data(+new URLSearchParams(q).get('days_back') || 60);
-      if (p === 'refresh') return refresh(false);
+      if (p === 'refresh') return body.auto && now() - last.p < 120 ? { prices: 'up to date' } : refresh(false);
       if (p === 'settings' && opts.method === 'PUT') {
         const s = settings();
         for (const [k, v] of Object.entries(body)) {

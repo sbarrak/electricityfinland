@@ -100,12 +100,22 @@ $$('.test').forEach(b => b.onclick = async () => {
 function renderUsers(list) {
   $('#userList').innerHTML = list.map(u => `<div class="urow"><span>👤 ${esc(u.username)}` +
     `${u.is_admin ? ' <small>(admin)</small>' : ''}${u.must_change ? ' <small>(temporary password)</small>' : ''}</span>` +
-    `${u.is_admin ? '' : `<button type="button" class="ghost" data-uid="${u.id}" data-name="${esc(u.username)}" title="Remove user">✕</button>`}</div>`).join('');
+    `${u.is_admin ? '' : `<span><button type="button" class="ghost" data-act="reset" data-uid="${u.id}" data-name="${esc(u.username)}">Reset password</button> ` +
+      `<button type="button" class="ghost" data-act="del" data-uid="${u.id}" data-name="${esc(u.username)}" title="Remove user">✕</button></span>`}</div>`).join('');
 }
 $('#userList').addEventListener('click', async e => {
-  const b = e.target.closest('[data-uid]');
-  if (!b || !confirm(`Remove ${b.dataset.name}? Their recipients and settings are deleted too.`)) return;
-  try { renderUsers(await api('users/' + b.dataset.uid, { method: 'DELETE' })); } catch (err) { $('#nuErr').textContent = err.message; }
+  const b = e.target.closest('[data-uid]'), name = b?.dataset.name;
+  if (!b) return;
+  try {
+    if (b.dataset.act === 'reset') {
+      const pw = prompt(`New temporary password for ${name} (min 8 characters). ${name} must choose their own at the next login.`);
+      if (pw === null) return;
+      renderUsers(await api(`users/${b.dataset.uid}/password`, { method: 'POST', body: JSON.stringify({ password: pw }) }));
+      $('#nuErr').textContent = ''; $('#nuMsg').textContent = `Password of ${name} reset. Give them the temporary password.`;
+    } else if (confirm(`Remove ${name}? Their recipients and settings are deleted too.`)) {
+      renderUsers(await api('users/' + b.dataset.uid, { method: 'DELETE' }));
+    }
+  } catch (err) { $('#nuErr').textContent = err.message; }
 });
 $('#nuAdd').onclick = async () => {
   try {
@@ -174,7 +184,9 @@ async function boot() {
   if (me.is_admin) api('users').then(renderUsers, () => {});
   filled = false;  // another user may have logged in: load their settings into the form
   screen('main');
-  load();
+  await load();
+  // fetch the latest prices as soon as the app opens, then show them
+  api('refresh', { method: 'POST', body: JSON.stringify({ auto: true }) }).then(r => r.prices === 'ok' && load(), () => {});
 }
 $('#loginForm').onsubmit = async e => {
   e.preventDefault();
