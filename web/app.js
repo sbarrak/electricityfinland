@@ -7,10 +7,10 @@ const store = (k, v) => { try { return v === undefined ? localStorage.getItem(k)
 const LOCAL = window.LOCAL;  // set by local.js when opened as a file
 const DAY = 864e5, MIN_SPAN = 3 * 36e5, BUCKETS = [900, 3600, 10800, 21600, 86400];
 const RES = { 900: '15 min', 3600: '1 h', 10800: '3 h', 21600: '6 h', 86400: '1 day' };
-const NAMES = { spot: 'spot', transfer: 'transfer', total: 'total cost' };
+const NAMES = { spot: 'spot', total: 'total cost' };
 let D = null, S = {}, chart = null, filled = false, loadedDays = 60, bucket = null, avgVal = null, tickStep = 1;
-let mode = store('mode') || 'total', vat = store('vat') !== '0', cmp = store('cmp') === '1', avgOn = store('avg') === '1';
-let tab = 'prices', view = null, yZoom = 1, yPos = 0.5, touched = 0;
+let mode = store('mode') === 'spot' ? 'spot' : 'total', vat = store('vat') !== '0', cmp = store('cmp') === '1', avgOn = store('avg') === '1';
+let tab = 'prices', view = null, yZoom = 1, yPos = 0.5, touched = 0, sel = null;  // sel: chart point picked for the breakdown
 
 // ---------------------------------------------------------------- settings form
 const FIELDS = {
@@ -19,7 +19,7 @@ const FIELDS = {
     ['tax', 'Electricity tax + supply fee'], ['other', 'Other per kWh'], ['vat', 'VAT %']],
   monthly: [['monthly_provider', 'Provider monthly fee €'], ['monthly_transfer', 'Transfer monthly fee €'],
     ['monthly_kwh', 'Monthly consumption kWh'], ['spread_monthly', 'Spread monthly fees into total c/kWh', 'cb']],
-  notif: [['hysteresis', 'Re-arm margin c/kWh'], ['quiet_start', 'Quiet from hour (-1 off)', 1], ['quiet_end', 'Quiet until hour', 1],
+  notif: [['quiet_start', 'Quiet from hour (-1 off)', 1], ['quiet_end', 'Quiet until hour', 1],
     ['summary_on', "Daily summary when tomorrow's prices publish", 'cb']],
   smtp: LOCAL ? LOCAL.fields : [['smtp_host', 'Server', 'text'], ['smtp_port', 'Port', 1], ['smtp_security', 'Security', ['starttls', 'ssl', 'none']],
     ['smtp_user', 'Username', 'text'], ['smtp_pass', 'Password', 'password'], ['smtp_from', 'From address (optional)', 'email'],
@@ -52,32 +52,77 @@ function fillSettings() {
   const pw = $('[data-k=smtp_pass]');
   if (pw) pw.placeholder = S.smtp_pass_set ? '•••••• (saved)' : '';
   $('#recips').innerHTML = (S.recipients || []).map(recipRow).join('');
+  monthlyInfo();
+}
+function monthlyInfo() {
   const fixed = S.monthly_provider + S.monthly_transfer;
   $('#monthlyInfo').textContent = `Fixed ${fixed.toFixed(2)} €/month` +
     (S.monthly_kwh > 0 ? ` ≈ ${(fixed * 100 / S.monthly_kwh).toFixed(2)} c/kWh at ${S.monthly_kwh} kWh` : '');
 }
-function readSettings() {
+function readFields(root) {  // the settings inside root (+ recipients when root holds them)
   const o = {};
-  $$('[data-k]').forEach(el => {
+  $$('[data-k]', root).forEach(el => {
     o[el.dataset.k] = el.type === 'checkbox' ? el.checked : el.type === 'number' ? +el.value : el.value.trim();
   });
-  o.recipients = $$('.recip').map(row => Object.fromEntries($$('[data-r]', row).map(el =>
+  if ($('#recips', root)) o.recipients = $$('.recip', root).map(row => Object.fromEntries($$('[data-r]', row).map(el =>
     [el.dataset.r, el.type === 'checkbox' ? el.checked : el.value.trim()])));
   return o;
 }
-const saveSettings = async () => { S = await api('settings', { method: 'PUT', body: JSON.stringify(readSettings()) }); fillSettings(); };
-$$('.save').forEach(b => b.onclick = async () => {
-  try { await saveSettings(); flash('Saved ✓'); build(); } catch (e) { flash('Error: ' + e.message); }
+const putSettings = async o => { S = await api('settings', { method: 'PUT', body: JSON.stringify(o) }); };
+function refreshValues() { if (!D) return; renderCards(); renderBreakdown(); bucket = null; update(); }
+
+// settings below the chart are saved while typing (no save button)
+let saveTimer = null;
+const saveNow = async () => {
+  clearTimeout(saveTimer); saveTimer = null;
+  await putSettings(readFields($('#settings')));
+  monthlyInfo(); refreshValues();
+};
+const autosave = () => {
+  clearTimeout(saveTimer);
+  saveTimer = setTimeout(() => saveNow().then(() => flash('Saved ✓'), e => flash('Not saved: ' + e.message)), 400);
+};
+$('#settings').addEventListener('input', autosave);
+$('#settings').addEventListener('change', autosave);
+$('#recips').addEventListener('click', e => e.target.classList.contains('del') && autosave());
+
+$$('.save').forEach(b => b.onclick = async () => {  // alarm limits above the chart
+  try { await putSettings(readFields($('#alarmbar'))); flash('Alarm settings saved ✓'); build(); } catch (e) { flash('Error: ' + e.message); }
 });
 $$('.test').forEach(b => b.onclick = async () => {
   const out = t => $$('.testOut').forEach(el => el.textContent = t);
   out('Sending…');
   try {
-    await saveSettings();
+    await saveNow();
     const r = await api('test-notify', { method: 'POST', body: JSON.stringify({ channel: b.dataset.ch }) });
     out(Object.entries(r).map(([k, v]) => `${k}: ${v}`).join(' · '));
   } catch (e) { out(e.message); }
 });
+
+// message templates popup
+const dlg = $('#msgDialog');
+$('#phAlarm').textContent = TEMPLATE_FIELDS.alarm.map(f => `{${f}}`).join(' ');
+$('#phSummary').textContent = TEMPLATE_FIELDS.summary.map(f => `{${f}}`).join(' ');
+function sampleFields(k) {
+  if (k === 'msg_summary') return { weekday: 'Sat', date: '11.10.', avg: '8.40', min: '1.20', min_time: '03:00', max: '21.70', max_time: '18:00', basis: alarmBasis(S) };
+  const kind = k === 'msg_high' ? 'high' : 'low', t = Math.floor(Date.now() / 9e5) * 900 + 7200;
+  return windowFields(S, kind, { start: t, end: t + 5400, ps: [[kind === 'high' ? S.high + 1.5 : S.low - 0.5, 5400]] });
+}
+const preview = () => $$('[data-m]', dlg).forEach(t => $(`[data-p=${t.dataset.m}]`, dlg).textContent = 'Example: ' + fillTemplate(t.value, sampleFields(t.dataset.m)));
+$$('.openMsg').forEach(b => b.onclick = () => {
+  $$('[data-m]', dlg).forEach(t => t.value = S[t.dataset.m] || MSG_DEFAULTS[t.dataset.m]);
+  $('#msgErr').textContent = ''; preview(); dlg.showModal();
+});
+dlg.addEventListener('input', preview);
+$('#msgDefaults').onclick = () => { $$('[data-m]', dlg).forEach(t => t.value = MSG_DEFAULTS[t.dataset.m]); preview(); };
+$('#msgCancel').onclick = () => dlg.close();
+$('#msgForm').onsubmit = async e => {
+  e.preventDefault();
+  try {
+    await putSettings(Object.fromEntries($$('[data-m]', dlg).map(t => [t.dataset.m, t.value.trim() || MSG_DEFAULTS[t.dataset.m]])));
+    dlg.close(); flash('Messages saved ✓');
+  } catch (err) { $('#msgErr').textContent = err.message; }
+};
 
 // ---------------------------------------------------------------- api, login, account
 async function api(path, opts = {}) {
@@ -252,14 +297,18 @@ function series() {
 
 function makeTicks(min, max, width) {
   const H = (max - min) / 36e5, n = Math.max(2, width / 46);
-  tickStep = [1, 2, 3, 6, 12, 24, 48, 168, 720].find(s => H / s <= n) || 720;
-  const d = new Date(min); d.setMinutes(0, 0, 0);
-  if (tickStep === 720) d.setDate(1);
-  if (tickStep >= 24) d.setHours(0); else d.setHours(Math.floor(d.getHours() / tickStep) * tickStep);
+  tickStep = [0.25, 0.5, 1, 2, 3, 6, 12, 24, 48, 168, 720].find(s => H / s <= n) || 720;  // 15 min … daily … monthly
+  const d = new Date(min); d.setSeconds(0, 0);
+  if (tickStep < 1) d.setMinutes(Math.floor(d.getMinutes() / (tickStep * 60)) * tickStep * 60);
+  else {
+    d.setMinutes(0);
+    if (tickStep === 720) d.setDate(1);
+    if (tickStep >= 24) d.setHours(0); else d.setHours(Math.floor(d.getHours() / tickStep) * tickStep);
+  }
   const out = [];
   for (let i = 0; +d <= max && i < 400; i++) {
     if (+d >= min) out.push({ value: +d });
-    if (tickStep === 720) d.setMonth(d.getMonth() + 1); else if (tickStep >= 24) d.setDate(d.getDate() + tickStep / 24); else d.setHours(d.getHours() + tickStep);
+    if (tickStep === 720) d.setMonth(d.getMonth() + 1); else if (tickStep >= 24) d.setDate(d.getDate() + tickStep / 24); else d.setMinutes(d.getMinutes() + tickStep * 60);
   }
   return out;
 }
@@ -288,6 +337,10 @@ const overlay = {
     }
     if (showThr()) { if (S.high_on) hline(S.high, css('--hi')); if (S.low_on) hline(S.low, css('--lo')); }
     if (avgOn && avgVal != null) hline(avgVal, css('--fg'), `avg ${fmt(avgVal)}`);
+    if (sel != null) {
+      const sx = x.getPixelForValue(sel * 1000);
+      if (sx > left && sx < right) { g.setLineDash([2, 3]); g.strokeStyle = css('--muted'); g.beginPath(); g.moveTo(sx, top); g.lineTo(sx, bottom); g.stroke(); }
+    }
     const nx = x.getPixelForValue(Date.now());
     if (nx > left && nx < right) { g.setLineDash([]); g.strokeStyle = css('--fg'); g.beginPath(); g.moveTo(nx, top); g.lineTo(nx, bottom); g.stroke(); }
     g.restore();
@@ -298,7 +351,7 @@ function build() {
   if (!D) return;
   if (typeof Chart === 'undefined') { renderCards(); status(); return fatal('The chart library could not be loaded. Check the internet connection and reload.'); }
   chart?.destroy();
-  renderCards();
+  renderCards(); renderBreakdown();
   const grid = { color: css('--grid') }, ticks = { color: css('--muted') }, small = innerWidth < 600;
   const datasets = series().map(d => ({ ...d, data: [], pointRadius: 0, borderWidth: d.kind === 'wind' ? 1.5 : 2,
     stepped: d.kind === 'price' ? 'after' : false, yAxisID: d.kind === 'price' ? 'y' : 'y1' }));
@@ -307,6 +360,7 @@ function build() {
     options: {
       responsive: true, maintainAspectRatio: false, animation: false, parsing: false, normalized: true,
       interaction: { mode: 'x', intersect: false }, elements: { point: { hitRadius: 4 } },
+      onClick: (evt, _, ch) => { sel = ch.scales.x.getValueForPixel(evt.x) / 1000; renderBreakdown(); ch.draw(); },
       scales: {
         x: { type: 'time', grid, afterBuildTicks: sc => { sc.ticks = makeTicks(sc.min, sc.max, sc.width || 600); },
           ticks: { ...ticks, autoSkip: false, maxRotation: 0, callback: tickLabel } },
@@ -316,7 +370,7 @@ function build() {
       },
       plugins: {
         legend: { labels: { color: css('--fg'), boxWidth: 12, font: { size: small ? 10 : 12 } } },
-        tooltip: { callbacks: {
+        tooltip: { filter: (it, i, all) => all.findIndex(o => o.datasetIndex === it.datasetIndex) === i, callbacks: {
           title: it => it.length ? `${dayFmt(it[0].parsed.x)} ${hm(it[0].parsed.x)}` + (bucket > 900 ? `–${hm(it[0].parsed.x + bucket * 1000)}` : '') : '',
           label: c => `${c.dataset.label}: ${c.parsed.y.toFixed(c.dataset.kind === 'price' ? 2 : 0)}` } },
       },
@@ -449,13 +503,46 @@ function renderCards() {
   }
   const w = D.wind_actual.filter(r => r[0] <= now).at(-1) || D.wind.find(r => r[0] >= now - 3600);
   const p = cur && val(cur), cls = p == null || !showThr() ? '' : S.high_on && p >= S.high ? 'hi' : S.low_on && p <= S.low ? 'lo' : '';
-  const card = (t, v, sub, c = '') => `<div class="card stat ${c}"><small>${t}</small><b>${v}</b><span>${sub}</span></div>`;
+  const tr = cur && priceParts(S, cur[0], cur[1]);
+  const card = (id, t, v, sub, c = '') => `<div class="card stat ${c}" data-id="${id}"><button class="info" type="button" aria-label="What does this mean?">i</button>` +
+    `<small>${t}</small><b>${v}</b><span>${sub}</span><p class="desc${openInfo.has(id) ? '' : ' hidden'}">${INFO[id]}</p></div>`;
   $('#cards').innerHTML =
-    card(`Now · ${NAMES[mode]}`, fmt(p), `c/kWh ${vat ? 'incl.' : 'excl.'} VAT` + (cur ? ' · ' + hm(cur[0] * 1000) : ''), cls) +
-    card('Today avg', today ? fmt(today.avg) : '–', today ? `${fmt(today.min)} – ${fmt(today.max)}` : '') +
-    card('Tomorrow avg', tom ? fmt(tom.avg) : '–', tom ? `${fmt(tom.min)} – ${fmt(tom.max)}` : 'published ~14:00') +
-    card('Cheapest 3h', best ? hm(best.ts * 1000) : '–', best ? `avg ${fmt(best.avg)} c/kWh` : '') +
-    card('Wind', w ? Math.round(w[1]) : '–', 'MW' + (w ? ' · ' + hm(w[0] * 1000) : ''));
+    card('now', `Now · ${NAMES[mode]}`, fmt(p), `c/kWh ${vat ? 'incl.' : 'excl.'} VAT` + (cur ? ' · ' + hm(cur[0] * 1000) : ''), cls) +
+    card('transfer', 'Transfer now', tr ? fmt(priceValue(S, cur[0], cur[1], 'transfer', vat)) : '–', tr ? `${tr.night ? 'night' : 'day'} rate + tax · ${vat ? 'incl.' : 'excl.'} VAT` : '') +
+    card('today', 'Today avg', today ? fmt(today.avg) : '–', today ? `${fmt(today.min)} – ${fmt(today.max)}` : '') +
+    card('tomorrow', 'Tomorrow avg', tom ? fmt(tom.avg) : '–', tom ? `${fmt(tom.min)} – ${fmt(tom.max)}` : 'published ~14:00') +
+    card('cheap', 'Cheapest 3h', best ? hm(best.ts * 1000) : '–', best ? `avg ${fmt(best.avg)} c/kWh` : '') +
+    card('wind', 'Wind', w ? Math.round(w[1]) : '–', 'MW' + (w ? ' · ' + hm(w[0] * 1000) : ''));
+}
+const INFO = {
+  now: 'Price of the current 15-minute slot: the spot price or your total cost (buttons above the chart), with or without VAT (checkbox).',
+  transfer: 'Your network transfer fee for this hour (day or night rate) plus electricity tax, from the Costs settings. It does not depend on the market.',
+  today: "Average of today's prices. The small numbers are today's lowest and highest price.",
+  tomorrow: "Average of tomorrow's prices, lowest and highest. Nord Pool publishes them around 14:00 Finnish time.",
+  cheap: 'Start time of the cheapest 3-hour block in the already published prices from now on, and its average price. Good for laundry, dishwasher or car charging.',
+  wind: 'Latest wind power production in Finland (or the forecast) in megawatts. More wind usually means cheaper electricity.',
+};
+const openInfo = new Set();
+$('#cards').onclick = e => {
+  const c = e.target.closest('.info')?.closest('.stat'); if (!c) return;
+  openInfo.has(c.dataset.id) ? openInfo.delete(c.dataset.id) : openInfo.add(c.dataset.id);
+  $('.desc', c).classList.toggle('hidden');
+};
+
+function renderBreakdown() {  // all cost parts of the picked chart point (default: now)
+  if (!D) return;
+  const t = sel ?? Date.now() / 1000, la = lastActual();
+  let row = t < la + 900 ? D.actual.filter(r => r[0] <= t).at(-1) : null, est = false;
+  if (!row) { row = D.forecast.filter(r => r[0] <= t).at(-1); est = true; }
+  const box = $('#breakdown');
+  if (!row) { box.innerHTML = '<h3>Price breakdown</h3><p class="hint">Click a point in the chart.</p>'; return; }
+  const p = priceParts(S, row[0], row[1]), line = (l, v, c = '') => `<tr class="${c}"><td>${l}</td><td>${fmt(v)}</td></tr>`;
+  box.innerHTML = `<h3>Price breakdown <small>c/kWh</small></h3>
+    <p class="hint">${dayFmt(row[0] * 1000)} ${hm(row[0] * 1000)} · ${est ? 'estimate' : 'published price'}${sel == null ? ' (now)' : ''}. Click a point in the chart to change.</p>
+    <table>${line('Spot price excl. VAT', p.spotEx)}${line(`VAT ${S.vat} % on spot`, p.vatOnSpot)}${line('Provider margin', p.margin)}` +
+    `${line('Other per kWh', p.other)}${line(`Transfer (${p.night ? 'night' : 'day'})`, p.transferFee)}${line('Electricity tax', p.tax)}` +
+    `${p.monthly ? line('Monthly fees per kWh', p.monthly) : ''}${line('Total incl. VAT', p.total, 'sum')}` +
+    `${line('Total excl. VAT', p.spotEx + (p.total - p.spotEx - p.vatOnSpot) / p.k, 'muted')}</table>`;
 }
 function status() {
   if (!D) return;

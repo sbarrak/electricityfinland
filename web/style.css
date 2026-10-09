@@ -93,3 +93,33 @@ footer{margin-top:16px}
 }
 .grid label.sw{display:flex;color:var(--fg);font-size:1em}
 .fatal{position:sticky;top:0;z-index:10;background:var(--hi);color:#fff;padding:10px 14px;border-radius:10px;margin-bottom:10px;font-size:.9em}
+/* v3: estimate green, "below" limit violet, alarm row, card info, breakdown, message dialog */
+:root{--est:#16a34a;--lo:#7c3aed}
+@media (prefers-color-scheme:dark){:root{--est:#4ade80;--lo:#a78bfa}}
+.right{margin-left:auto}
+.toolbar.alarmbar{margin-bottom:8px;padding:8px 0;border-top:1px solid var(--line);border-bottom:1px solid var(--line)}
+.tlabel{font-weight:600;font-size:.85em;color:var(--muted)}
+.alarmbar input[type=number]{width:5.5em}
+.stat{position:relative}
+.stat .info{position:absolute;top:8px;right:8px;width:22px;height:22px;min-height:0;padding:0;border-radius:50%;
+  background:transparent;color:var(--muted);border:1.5px solid var(--muted);font:italic 600 12px/1 Georgia,serif}
+.stat .info:hover{color:var(--accent);border-color:var(--accent)}
+.stat .desc{margin:8px 0 0;font-size:.8em;color:var(--fg);line-height:1.35}
+@media (min-width:1000px){.settings{grid-template-columns:repeat(3,1fr)}}
+#breakdown h3{margin:0 0 4px;font-size:1rem} #breakdown h3 small{color:var(--muted);font-weight:400}
+#breakdown table{width:100%;border-collapse:collapse;font-variant-numeric:tabular-nums;font-size:.9em}
+#breakdown td{padding:5px 0;border-bottom:1px solid var(--grid)} #breakdown td:last-child{text-align:right}
+#breakdown tr.sum td{font-weight:700;border-top:2px solid var(--line);border-bottom:0}
+#breakdown tr.muted td{color:var(--muted);border-bottom:0}
+dialog{border:0;border-radius:var(--r);padding:0;width:min(640px,calc(100vw - 32px));background:var(--card);color:var(--fg);box-shadow:0 20px 60px rgba(0,0,0,.35)}
+dialog::backdrop{background:rgba(15,23,42,.55)}
+dialog form{display:grid;gap:8px;padding:18px}
+dialog h2{margin:0;font-size:1.1rem}
+dialog label{display:grid;gap:4px;font-size:.85em;color:var(--muted)}
+dialog textarea{font:inherit;font-size:14px;color:var(--fg);background:var(--bg);border:1px solid var(--line);border-radius:10px;padding:8px;resize:vertical}
+dialog code{font-size:.85em;word-break:break-word}
+dialog .preview{margin:0 0 6px}
+.dlgbtns{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:6px}
+@media (max-width:600px){.toolbar .right{margin-left:0}}
+.stat small{padding-right:26px}
+.grid .sw input{width:20px;flex:none}

@@ -8,7 +8,7 @@
   const DEFAULTS = {
     vat: 25.5, margin: 0, transfer_day: 0, transfer_night: 0, night_start: 22, night_end: 7, tax: 2.827, other: 0,
     monthly_provider: 0, monthly_transfer: 0, monthly_kwh: 0, spread_monthly: false,
-    alarm_basis: 'total', alarm_vat: true, high_on: false, high: 20, low_on: false, low: 2, hysteresis: 0.5, summary_on: true,
+    alarm_basis: 'total', alarm_vat: true, high_on: false, high: 20, low_on: false, low: 2, summary_on: true, ...MSG_DEFAULTS,
     quiet_start: -1, quiet_end: -1, wa_on: false, email_on: false, recipients: [],
     ejs_service: '', ejs_template: '', ejs_key: '', fingrid_key: '',
   };
@@ -34,7 +34,6 @@
   const hm = ts => new Date(ts * 1000).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
   const midnight = days => { const d = new Date(); d.setHours(0, 0, 0, 0); d.setDate(d.getDate() + days); return d; };
   const priceOf = (s, ts, spot) => priceValue(s, ts, spot, s.alarm_basis, s.alarm_vat);
-  const basis = s => `${s.alarm_basis} ${s.alarm_vat ? 'incl.' : 'excl.'} VAT`;
 
   async function json(url, opts) {
     const r = await fetch(url, opts);
@@ -110,20 +109,18 @@
     if (a < 0 || b < 0 || a === b) return false;
     return a > b ? (h >= a || h < b) : (a <= h && h < b);
   }
-  function checkAlarms(s) {
-    const row = rows('prices', now() - 7200).filter(r => r[0] <= now()).at(-1);
-    if (!row || now() - row[0] > 3600) return [];
-    const p = priceOf(s, ...row), st = get('alarm_state', {}), msgs = [], hy = s.hysteresis;
-    for (const [kind, on, trig, clear, word] of [
-      ['high', s.high_on, p >= s.high, p < s.high - hy, 'ABOVE'],
-      ['low', s.low_on, p <= s.low, p > s.low + hy, 'BELOW']]) {
-      if (on && trig && !st[kind]) {
-        st[kind] = true;
-        msgs.push(`⚡ Price ${word} ${s[kind]} c/kWh: now ${p.toFixed(2)} c/kWh (${hm(row[0])}, ${basis(s)})`);
-      } else if (st[kind] && (clear || !on)) st[kind] = false;
+  function checkAlarms(s) {  // one message per new high/low period in the published future prices
+    const sent = Object.fromEntries(Object.entries(get('alarm_sent', {})).filter(([, e]) => e > now()));
+    const list = rows('prices', now() - 3600), msgs = [];
+    for (const kind of ['high', 'low']) {
+      if (!s[kind + '_on']) continue;
+      const fresh = priceWindows(s, list, kind).filter(w => !(`${kind}:${w.start}` in sent));
+      if (!fresh.length || inQuiet(s)) continue;  // in quiet hours the message waits until they end
+      msgs.push(fresh.map(w => fillTemplate(s['msg_' + kind], windowFields(s, kind, w))).join('\n'));
+      fresh.forEach(w => sent[`${kind}:${w.start}`] = w.end);
     }
-    put('alarm_state', st);
-    return inQuiet(s) ? [] : msgs;
+    put('alarm_sent', sent);
+    return msgs;
   }
   function windows(list, test) {
     const out = []; let start = null;
@@ -141,8 +138,9 @@
     if (!list.length || list.at(-1)[0] < b - 3600) return [];
     put('summary_date', key);
     const ps = list.map(r => r[1]), lo = list.reduce((x, y) => y[1] < x[1] ? y : x), hi = list.reduce((x, y) => y[1] > x[1] ? y : x);
-    let msg = `📅 Tomorrow ${d0.getDate()}.${d0.getMonth() + 1}. (${basis(s)}): avg ${(ps.reduce((x, y) => x + y) / ps.length).toFixed(2)}, ` +
-      `min ${lo[1].toFixed(2)} @${hm(lo[0])}, max ${hi[1].toFixed(2)} @${hm(hi[0])} c/kWh`;
+    const day = windowFields(s, 'high', { start: a, end: b, ps: [[0, 1]] });
+    let msg = fillTemplate(s.msg_summary, { weekday: day.weekday, date: day.date, avg: (ps.reduce((x, y) => x + y) / ps.length).toFixed(2),
+      min: lo[1].toFixed(2), min_time: hm(lo[0]), max: hi[1].toFixed(2), max_time: hm(hi[0]), basis: alarmBasis(s) });
     let w;
     if (s.high_on && (w = windows(list, p => p >= s.high))) msg += `\n🔴 ≥${s.high}: ${w}`;
     if (s.low_on && (w = windows(list, p => p <= s.low))) msg += `\n🟢 ≤${s.low}: ${w}`;
@@ -192,11 +190,15 @@
           s[k] = Array.isArray(d) ? v.slice(0, 20).map(clean) : typeof d === 'boolean' ? !!v : typeof d === 'number' ? +v : String(v);
           if (Number.isNaN(s[k])) throw new Error('invalid value for ' + k);
         }
-        put('settings', Object.fromEntries(Object.entries(s).filter(([k]) => k in DEFAULTS))); put('alarm_state', {});
+        put('settings', Object.fromEntries(Object.entries(s).filter(([k]) => k in DEFAULTS)));
         if (body.fingrid_key) last.f = 0;  // fetch with the new key on the next tick
         return s;
       }
-      if (p === 'test-notify') return notify(settings(), '✅ Test message from Electricity Finland', body.channel || 'all');
+      if (p === 'test-notify') {
+        const s = settings(), t = Math.floor(now() / 900) * 900 + 7200;
+        const text = '✅ Test message from Electricity Finland. Example alarm:\n' + fillTemplate(s.msg_high, windowFields(s, 'high', { start: t, end: t + 5400, ps: [[s.high + 1.5, 5400]] }));
+        return notify(s, text, body.channel || 'all');
+      }
       return { ok: true };
     },
   };

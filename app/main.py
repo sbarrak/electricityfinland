@@ -1,5 +1,5 @@
 """Electricity Finland: spot price + wind monitor with WhatsApp/email alarms."""
-import asyncio, hashlib, hmac, json, logging, os, smtplib, sqlite3, ssl, time
+import asyncio, hashlib, hmac, json, logging, os, re, smtplib, sqlite3, ssl, time
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta
 from email.message import EmailMessage
@@ -34,8 +34,12 @@ DEFAULTS = {
     "night_start": 22, "night_end": 7, "tax": 2.827, "other": 0.0,
     "monthly_provider": 0.0, "monthly_transfer": 0.0, "monthly_kwh": 0.0, "spread_monthly": False,
     "alarm_basis": "total", "alarm_vat": True, "high_on": False, "high": 20.0, "low_on": False, "low": 2.0,
-    "hysteresis": 0.5, "summary_on": True, "quiet_start": -1, "quiet_end": -1,
+    "summary_on": True, "quiet_start": -1, "quiet_end": -1,
     "wa_on": False, "email_on": False, "recipients": [],
+    # message templates, placeholders: see fill() / web/costs.js
+    "msg_high": "🔴 High price {price} c/kWh · {weekday} {date} {time}–{end} ({duration}) · limit {limit}",
+    "msg_low": "🟢 Low price {price} c/kWh · {weekday} {date} {time}–{end} ({duration}) · limit {limit}",
+    "msg_summary": "📅 Tomorrow {weekday} {date}: avg {avg}, min {min} at {min_time}, max {max} at {max_time} c/kWh ({basis})",
     # email server (SMTP relay); SMTP_* env vars are used when a field is empty
     "smtp_host": env("host", "mail.laseleka.com"), "smtp_port": int(env("port", "587") or 587),
     "smtp_security": env("security", "starttls"), "smtp_verify": env("verify", "true").lower() != "false",
@@ -228,29 +232,68 @@ def price_of(s, ts, spot):
 
 
 def basis(s):
-    return s["alarm_basis"] + (" incl. VAT" if s["alarm_vat"] else " excl. VAT")
+    return ("spot" if s["alarm_basis"] == "spot" else "total cost") + (" incl. VAT" if s["alarm_vat"] else " excl. VAT")
 
 
 def fmt(ts):
     return datetime.fromtimestamp(ts, TZ).strftime("%H:%M")
 
 
+WEEKDAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+
+
+def fill(tpl, f):
+    """Replace {name} placeholders; unknown ones stay as written. Mirrors fillTemplate() in web/costs.js."""
+    return re.sub(r"\{(\w+)\}", lambda m: str(f.get(m[1], m[0])), tpl)
+
+
+def duration(sec):
+    h, m = divmod(int(sec) // 60, 60)
+    return f"{h} h {m} min" if h and m else f"{h} h" if h else f"{m} min"
+
+
+def price_windows(s, kind):
+    """Contiguous periods of published prices (not ended yet) above the high / below the low limit."""
+    now, out, cur = time.time(), [], None
+    rows = db.execute("SELECT ts, spot FROM prices WHERE ts>=? ORDER BY ts", (now - 3600,)).fetchall()
+    for i, (t, v) in enumerate(rows):
+        step = min(3600, rows[i + 1][0] - t) if i + 1 < len(rows) else 900
+        p = price_of(s, t, v)
+        if t + step <= now or not (p >= s["high"] if kind == "high" else p <= s["low"]):
+            cur = None
+            continue
+        if cur and cur["end"] == t:
+            cur["end"] = t + step
+            cur["ps"].append((p, step))
+        else:
+            cur = {"start": t, "end": t + step, "ps": [(p, step)]}
+            out.append(cur)
+    return out
+
+
+def window_fields(s, kind, w):
+    ps = [p for p, _ in w["ps"]]
+    d = datetime.fromtimestamp(w["start"], TZ)
+    return {"price": f"{(max(ps) if kind == 'high' else min(ps)):.2f}",
+            "avg": f"{sum(p * n for p, n in w['ps']) / sum(n for _, n in w['ps']):.2f}",
+            "date": d.strftime("%d.%m."), "weekday": WEEKDAYS[d.weekday()], "time": fmt(w["start"]), "end": fmt(w["end"]),
+            "duration": duration(w["end"] - w["start"]), "limit": s[kind], "basis": basis(s)}
+
+
 def check_alarms(s):
-    row = db.execute("SELECT ts, spot FROM prices WHERE ts<=? ORDER BY ts DESC LIMIT 1", (time.time(),)).fetchone()
-    if not row or time.time() - row[0] > 3600:
-        return []
-    p, st, msgs, hy = price_of(s, *row), kv_get("alarm_state", {}), [], s["hysteresis"]
-    for kind, on, trig, clear, word in (
-        ("high", s["high_on"], p >= s["high"], p < s["high"] - hy, "ABOVE"),
-        ("low", s["low_on"], p <= s["low"], p > s["low"] + hy, "BELOW"),
-    ):
-        if on and trig and not st.get(kind):
-            st[kind] = True
-            msgs.append(f"⚡ Price {word} {s[kind]} c/kWh: now {p:.2f} c/kWh ({fmt(row[0])}, {basis(s)})")
-        elif st.get(kind) and (clear or not on):
-            st[kind] = False
-    kv_set("alarm_state", st)
-    return [] if in_quiet(s) else msgs
+    """One message per new high/low period found in the published (already agreed) future prices."""
+    sent = {k: e for k, e in kv_get("alarm_sent", {}).items() if e > time.time()}
+    msgs = []
+    for kind in ("high", "low"):
+        if not s[kind + "_on"]:
+            continue
+        new = [w for w in price_windows(s, kind) if f"{kind}:{w['start']}" not in sent]
+        if not new or in_quiet(s):  # in quiet hours the message waits until they end
+            continue
+        msgs.append("\n".join(fill(s["msg_" + kind], window_fields(s, kind, w)) for w in new))
+        sent.update({f"{kind}:{w['start']}": w["end"] for w in new})
+    kv_set("alarm_sent", sent)
+    return msgs
 
 
 def windows(rows, test):
@@ -278,8 +321,9 @@ def daily_summary(s):
     kv_set("summary_date", key)
     ps = [p for _, p in rows]
     lo, hi = min(rows, key=lambda r: r[1]), max(rows, key=lambda r: r[1])
-    msg = (f"📅 Tomorrow {day0:%d.%m.} ({basis(s)}): avg {sum(ps)/len(ps):.2f}, "
-           f"min {lo[1]:.2f} @{fmt(lo[0])}, max {hi[1]:.2f} @{fmt(hi[0])} c/kWh")
+    msg = fill(s["msg_summary"], {"date": day0.strftime("%d.%m."), "weekday": WEEKDAYS[day0.weekday()],
+                                  "avg": f"{sum(ps) / len(ps):.2f}", "min": f"{lo[1]:.2f}", "min_time": fmt(lo[0]),
+                                  "max": f"{hi[1]:.2f}", "max_time": fmt(hi[0]), "basis": basis(s)})
     if s["high_on"] and (w := windows(rows, lambda p: p >= s["high"])):
         msg += f"\n🔴 ≥{s['high']}: {w}"
     if s["low_on"] and (w := windows(rows, lambda p: p <= s["low"])):
@@ -461,7 +505,6 @@ async def put_settings(body: dict):
     if s["alarm_basis"] not in ("total", "spot", "transfer") or s["smtp_security"] not in ("starttls", "ssl", "none"):
         raise HTTPException(400, "invalid alarm basis or email security")
     kv_set("settings", {k: v for k, v in s.items() if k in DEFAULTS})
-    kv_set("alarm_state", {})  # re-evaluate alarms with new thresholds
     return public(s)
 
 
@@ -471,7 +514,10 @@ async def test_notify(body: dict | None = None):
     if channel not in ("all", "whatsapp", "email"):
         raise HTTPException(400, "channel must be all, whatsapp or email")
     async with httpx.AsyncClient(timeout=30) as c:
-        return await notify(c, settings(), "✅ Test message from Electricity Finland", force=channel)
+        s = settings()
+        sample = {"start": int(time.time() // 900 * 900) + 7200, "end": int(time.time() // 900 * 900) + 7200 + 5400, "ps": [(s["high"] + 1.5, 5400)]}
+        text = "✅ Test message from Electricity Finland. Example alarm:\n" + fill(s["msg_high"], window_fields(s, "high", sample))
+        return await notify(c, s, text, force=channel)
 
 
 # Local run without nginx: serve the web page from ../web (in Docker nginx does this)

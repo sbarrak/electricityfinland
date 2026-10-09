@@ -7,7 +7,7 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="theme-color" content="#0f172a">
 <title>Electricity Finland</title>
-<link rel="stylesheet" href="style.css?v=3">
+<link rel="stylesheet" href="style.css?v=4">
 </head>
 <body>
 <div id="fatal" class="fatal hidden"></div>
@@ -46,18 +46,6 @@
     <button id="logout" class="ghost">Log out</button>
   </header>
 
-  <section class="alarmbar card">
-    <label class="sw"><input type="checkbox" data-k="high_on"><span>🔴 Above</span></label>
-    <input type="number" step="0.1" data-k="high" inputmode="decimal"><span class="u">c/kWh</span>
-    <label class="sw"><input type="checkbox" data-k="low_on"><span>🟢 Below</span></label>
-    <input type="number" step="0.1" data-k="low" inputmode="decimal"><span class="u">c/kWh</span>
-    <select data-k="alarm_basis"><option value="total">on total cost</option><option value="spot">on spot</option><option value="transfer">on transfer</option></select>
-    <label class="sw"><input type="checkbox" data-k="alarm_vat"><span>incl. VAT</span></label>
-    <label class="sw"><input type="checkbox" data-k="wa_on"><span>WhatsApp</span></label>
-    <label class="sw"><input type="checkbox" data-k="email_on"><span>Email</span></label>
-    <button class="save">Save</button>
-  </section>
-
   <section class="cards" id="cards"></section>
 
   <section class="card chartcard">
@@ -65,10 +53,23 @@
       <button data-v="prices">Prices</button><button data-v="compare" id="tabCompare">Estimate vs actual</button>
     </div>
     <div class="toolbar">
-      <div class="seg" id="mode"><button data-v="spot">Spot</button><button data-v="transfer">Transfer</button><button data-v="total">Total cost</button></div>
+      <div class="seg" id="mode"><button data-v="spot">Spot</button><button data-v="total">Total cost</button></div>
       <label class="sw"><input type="checkbox" id="vat"><span>Incl. VAT</span></label>
       <label class="sw"><input type="checkbox" id="cmp"><span>Estimate vs actual tab</span></label>
       <label class="sw"><input type="checkbox" id="avg"><span>Average</span></label>
+    </div>
+    <div class="toolbar alarmbar" id="alarmbar">
+      <span class="tlabel">Alarms</span>
+      <label class="sw"><input type="checkbox" data-k="high_on"><span>🔴 Above</span></label>
+      <input type="number" step="0.1" data-k="high" inputmode="decimal"><span class="u">c/kWh</span>
+      <label class="sw"><input type="checkbox" data-k="low_on"><span>🟣 Below</span></label>
+      <input type="number" step="0.1" data-k="low" inputmode="decimal"><span class="u">c/kWh</span>
+      <select data-k="alarm_basis"><option value="total">on total cost</option><option value="spot">on spot</option></select>
+      <label class="sw"><input type="checkbox" data-k="alarm_vat"><span>incl. VAT</span></label>
+      <label class="sw"><input type="checkbox" data-k="wa_on"><span>WhatsApp</span></label>
+      <label class="sw"><input type="checkbox" data-k="email_on"><span>Email</span></label>
+      <button type="button" class="ghost openMsg">✉ Message</button>
+      <div class="right"><button class="save" type="button">Save</button></div>
     </div>
     <div class="toolbar">
       <select id="preset">
@@ -77,7 +78,7 @@
       </select>
       <label class="date">From <input type="date" id="from"></label>
       <label class="date">To <input type="date" id="to"></label>
-      <div class="zoom">
+      <div class="zoom right">
         <button data-z="x-" title="Zoom out (time)">−</button><span>⇔</span><button data-z="x+" title="Zoom in (time)">+</button>
         <button data-z="y-" title="Zoom out (price)">−</button><span>⇕</span><button data-z="y+" title="Zoom in (price)">+</button>
         <button data-z="reset" class="ghost">Reset</button>
@@ -91,16 +92,17 @@
     <p class="legend"><span id="info"></span> <span id="legend"></span></p>
   </section>
 
-  <section class="settings">
+  <section class="settings" id="settings">
     <details class="card" open>
-      <summary>Costs <small>c/kWh incl. VAT</small></summary>
+      <summary>Costs <small>c/kWh incl. VAT · saved automatically</small></summary>
       <div class="grid" id="costs"></div>
     </details>
-    <details class="card">
-      <summary>Monthly fees <small>€ / month</small></summary>
+    <details class="card" open>
+      <summary>Monthly fees <small>€ / month · saved automatically</small></summary>
       <div class="grid" id="monthly"></div>
       <p class="hint" id="monthlyInfo"></p>
     </details>
+    <div class="card" id="breakdown"></div>
     <details class="card wide">
       <summary>Recipients <small>WhatsApp / email</small></summary>
       <div id="recips"></div>
@@ -108,6 +110,7 @@
       <p class="hint">WhatsApp uses <a href="https://www.callmebot.com/blog/free-api-whatsapp-messages/" target="_blank" rel="noopener">CallMeBot</a>: each person sends “I allow callmebot to send me messages” to +34 644 51 95 23 from their phone and gets their own API key.</p>
       <div class="grid" id="notif"></div>
       <div class="tests">
+        <button class="ghost openMsg" type="button">✉ Customize messages</button>
         <button class="ghost test" data-ch="all" type="button">Send test to all</button>
         <button class="ghost test" data-ch="whatsapp" type="button">Test WhatsApp</button>
         <button class="ghost test" data-ch="email" type="button">Test email</button>
@@ -120,15 +123,34 @@
       <p class="hint" id="emailHint">Messages are sent through this server with your relay username and password. Leave the password empty to keep the saved one.</p>
       <button class="ghost test" data-ch="email" type="button">Test email</button> <span class="hint testOut"></span>
     </details>
-    <button class="save wide">Save settings</button>
   </section>
   <footer id="status"></footer>
 </div>
 
+<dialog id="msgDialog">
+  <form method="dialog" id="msgForm">
+    <h2>Alarm messages</h2>
+    <p class="hint">Placeholders: <code id="phAlarm"></code><br>Daily summary: <code id="phSummary"></code></p>
+    <label>Price above the limit<textarea data-m="msg_high" rows="2"></textarea></label>
+    <p class="hint preview" data-p="msg_high"></p>
+    <label>Price below the limit<textarea data-m="msg_low" rows="2"></textarea></label>
+    <p class="hint preview" data-p="msg_low"></p>
+    <label>Daily summary (when tomorrow's prices are published)<textarea data-m="msg_summary" rows="2"></textarea></label>
+    <p class="hint preview" data-p="msg_summary"></p>
+    <div class="dlgbtns">
+      <button type="button" class="ghost" id="msgDefaults">Restore defaults</button>
+      <span class="right"></span>
+      <button type="button" class="ghost" id="msgCancel">Cancel</button>
+      <button type="submit" id="msgSave">Save</button>
+    </div>
+    <p class="err" id="msgErr"></p>
+  </form>
+</dialog>
+
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns@3.0.0/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
-<script src="costs.js?v=3"></script>
-<script src="local.js?v=3"></script>
-<script src="app.js?v=3"></script>
+<script src="costs.js?v=4"></script>
+<script src="local.js?v=4"></script>
+<script src="app.js?v=4"></script>
 </body>
 </html>
