@@ -35,7 +35,7 @@ DEFAULTS = {
     "night_start": 22, "night_end": 7, "tax": 2.827, "other": 0.0,
     "monthly_provider": 0.0, "monthly_transfer": 0.0, "monthly_kwh": 0.0, "spread_monthly": False,
     "alarm_basis": "total", "alarm_vat": True, "high_on": False, "high": 20.0, "low_on": False, "low": 2.0,
-    "summary_on": True,
+    "summary_on": True, "extra_time_1": "", "extra_time_2": "", "extra_time_3": "",  # extra send times "HH:MM", empty = off
     "wa_on": False, "email_on": False, "recipients": [],
     # message templates, placeholders: see fill() / web/costs.js
     "msg_high": "🔴 High price {price} c/kWh · {weekday} {date} {time}–{end} ({duration}) · limit {limit}",
@@ -47,6 +47,8 @@ DEFAULTS = {
     "smtp_user": env("user"), "smtp_pass": env("pass"), "smtp_from": env("from"),
 }
 SECRET_FIELDS = ("smtp_pass",)
+EXTRA_TIMES = ("extra_time_1", "extra_time_2", "extra_time_3")
+TIME_RE = re.compile(r"([01]\d|2[0-3]):[0-5]\d")
 
 db = sqlite3.connect(os.getenv("DB_PATH", "/data/app.db"), check_same_thread=False)
 db.executescript("""
@@ -326,6 +328,14 @@ def daily_message(s, rows, a, b):
     return "\n".join(out)
 
 
+def published_message(s, a, b):
+    """The daily message for the fixed prices a..b, or None while they are not all published yet."""
+    rows = db.execute("SELECT ts, spot FROM prices WHERE ts>=? ORDER BY ts", (a - 3600,)).fetchall()
+    if not rows or rows[-1][0] < b - 900:
+        return None
+    return daily_message(s, rows, a, b)
+
+
 def daily_alarm(s, uid):
     """Once a day from 14:00 (normally 14:00–14:05): the fixed prices from 14:00 today to 14:00 tomorrow."""
     now = datetime.now(TZ)
@@ -335,12 +345,39 @@ def daily_alarm(s, uid):
     a, b, key = int(start.timestamp()), int((start + timedelta(days=1)).timestamp()), start.date().isoformat()
     if kv_get(f"daily_sent:{uid}") == key:
         return []
-    rows = db.execute("SELECT ts, spot FROM prices WHERE ts>=? ORDER BY ts", (a - 3600,)).fetchall()
-    if not rows or rows[-1][0] < b - 900:  # next day not published yet
+    msg = published_message(s, a, b)  # None: next day not published yet
+    if msg is None:
         return []
     kv_set(f"daily_sent:{uid}", key)
-    msg = daily_message(s, rows, a, b)
     return [msg] if msg else []
+
+
+EXTRA_GRACE = 3 * 3600  # an extra time still sends up to 3 h late (e.g. waiting for the prices or after a restart)
+
+
+def extra_alarms(s, uid):
+    """The same message at up to 3 more times of day: the prices from that time to the same time tomorrow.
+    Before 14:00 tomorrow is not fixed yet, so the message then ends at midnight. Mirrors extraAlarms() in web/local.js."""
+    now, out, seen = datetime.now(TZ), [], {f"{SEND_HOUR}:00"}
+    for i, k in enumerate(EXTRA_TIMES):
+        t = s.get(k) or ""
+        if not TIME_RE.fullmatch(t) or t in seen:
+            continue
+        seen.add(t)
+        start = now.replace(hour=int(t[:2]), minute=int(t[3:]), second=0, microsecond=0)
+        key = f"{start.date().isoformat()} {t}"
+        if not 0 <= (now - start).total_seconds() < EXTRA_GRACE or kv_get(f"extra_sent:{uid}:{i}") == key:
+            continue
+        end = start + timedelta(days=1)
+        if start.hour < SEND_HOUR:
+            end = start.replace(hour=0, minute=0) + timedelta(days=1)
+        msg = published_message(s, int(start.timestamp()), int(end.timestamp()))
+        if msg is None:
+            continue
+        kv_set(f"extra_sent:{uid}:{i}", key)
+        if msg:
+            out.append(msg)
+    return out
 
 
 def has_tomorrow():
@@ -367,7 +404,7 @@ async def worker():
             for (uid,) in db.execute("SELECT id FROM users").fetchall():
                 try:
                     s = settings(uid)
-                    for m in daily_alarm(s, uid):
+                    for m in daily_alarm(s, uid) + extra_alarms(s, uid):
                         await notify(c, s, m)
                 except Exception:
                     log.exception("alarm check failed for user %s", uid)
@@ -618,6 +655,10 @@ async def put_settings(body: dict, u: dict = Depends(user)):
         try:
             if isinstance(d, list):
                 s[k] = [clean_recipient(r) for r in v[:20] if isinstance(r, dict)]
+            elif k in EXTRA_TIMES:
+                s[k] = str(v or "").strip()
+                if s[k] and not TIME_RE.fullmatch(s[k]):
+                    raise ValueError
             else:
                 s[k] = bool(v) if isinstance(d, bool) else type(d)(v)
         except (TypeError, ValueError):

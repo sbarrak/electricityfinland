@@ -9,7 +9,7 @@
   const DEFAULTS = {
     vat: 25.5, margin: 0, transfer_day: 0, transfer_night: 0, night_start: 22, night_end: 7, tax: 2.827, other: 0,
     monthly_provider: 0, monthly_transfer: 0, monthly_kwh: 0, spread_monthly: false,
-    alarm_basis: 'total', alarm_vat: true, high_on: false, high: 20, low_on: false, low: 2, summary_on: true, ...MSG_DEFAULTS,
+    alarm_basis: 'total', alarm_vat: true, high_on: false, high: 20, low_on: false, low: 2, summary_on: true, extra_time_1: '', extra_time_2: '', extra_time_3: '', ...MSG_DEFAULTS,
     wa_on: false, email_on: false, recipients: [],
     ejs_service: '', ejs_template: '', ejs_key: '', fingrid_key: '',
   };
@@ -122,6 +122,25 @@
     return msg ? [msg] : [];
   }
 
+  // up to 3 extra times of day: the prices from that time to the same time tomorrow (before 14:00 tomorrow is not fixed yet: until midnight)
+  function extraAlarms(s) {
+    const out = [], seen = new Set(['14:00']), t0 = new Date();
+    for (const k of ['extra_time_1', 'extra_time_2', 'extra_time_3']) {
+      const t = s[k] || '';
+      if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(t) || seen.has(t)) continue;
+      seen.add(t);
+      const d = new Date(); d.setHours(+t.slice(0, 2), +t.slice(3), 0, 0);
+      const key = d.toDateString() + ' ' + t, late = (t0 - d) / 1000;
+      if (late < 0 || late >= 3 * 3600 || get('sent_' + k) === key) continue;
+      const a = d / 1000, b = d.getHours() < 14 ? midnight(1) / 1000 : a + 86400, list = rows('prices', a - 3600);
+      if (!list.length || list.at(-1)[0] < b - 900) continue;
+      put('sent_' + k, key);
+      const msg = dailyMessage(s, list, a, b);
+      if (msg) out.push(msg);
+    }
+    return out;
+  }
+
   const last = { p: 0, f: 0, h: 0 };
   async function refresh(fingrid = true) {
     const out = { prices: await track('prices', fetchPrices), forecast: await track('forecast', fetchForecasts) };
@@ -137,7 +156,7 @@
     if (t - last.h > 86400) { last.h = t; await track('history', () => backfill()); changed = true; }
     if (changed) { persist(); if (!document.querySelector('#main.hidden')) window.load?.(); }
     const s = settings();
-    for (const m of dailyAlarm(s)) await notify(s, m);
+    for (const m of [...dailyAlarm(s), ...extraAlarms(s)]) await notify(s, m);
   }
 
   function data(daysBack) {
@@ -163,6 +182,7 @@
         for (const [k, v] of Object.entries(body)) {
           if (!(k in DEFAULTS)) continue;
           const d = DEFAULTS[k];
+          if (/^extra_time_/.test(k) && v && !/^([01]\d|2[0-3]):[0-5]\d$/.test(v)) throw new Error('invalid value for ' + k);
           s[k] = Array.isArray(d) ? v.slice(0, 20).map(clean) : typeof d === 'boolean' ? !!v : typeof d === 'number' ? +v : String(v);
           if (Number.isNaN(s[k])) throw new Error('invalid value for ' + k);
         }

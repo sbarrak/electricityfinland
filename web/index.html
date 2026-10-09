@@ -140,7 +140,7 @@
   <form method="dialog" id="msgForm">
     <h2>Alarm messages</h2>
     <p class="hint">Placeholders: <code id="phAlarm"></code><br>Daily summary: <code id="phSummary"></code></p>
-    <p class="hint">One message is sent every day between 14:00 and 14:05 with the fixed prices from 14:00 to 14:00 the next day: the summary, then one line for each time the price goes up to the high limit or down to the low limit.</p>
+    <p class="hint">One message is sent every day between 14:00 and 14:05 with the fixed prices from 14:00 to 14:00 the next day: the summary, then one line for each time the price goes up to the high limit or down to the low limit. Under Recipients you can add up to 3 extra send times: the same message is then also sent at those times, with the prices from that time to the same time the next day (before 14:00 the next day is not fixed yet, so it then ends at midnight).</p>
     <label>Price goes up to or above the high limit<textarea data-m="msg_high" rows="2"></textarea></label>
     <p class="hint preview" data-p="msg_high"></p>
     <label>Price goes down to or below the low limit<textarea data-m="msg_low" rows="2"></textarea></label>
@@ -159,8 +159,8 @@
 
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns@3.0.0/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
-<script src="costs.js?v=9"></script>
-<script src="local.js?v=9"></script>
-<script src="app.js?v=9"></script>
+<script src="costs.js?v=10"></script>
+<script src="local.js?v=10"></script>
+<script src="app.js?v=10"></script>
 </body>
 </html>
