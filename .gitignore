@@ -1,4 +1,5 @@
 data/
 .env
+stack.env
 __pycache__/
 .venv/

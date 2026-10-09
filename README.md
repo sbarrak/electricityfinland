@@ -38,7 +38,7 @@ The estimate is a machine-learning forecast and can be badly off on volatile day
 | Start | `docker compose up -d` | `run.bat` (Windows) / `./run.sh` (Mac/Linux) | open `ElectricityFinland.html` |
 | Needs | Docker | Python 3.10+ | a browser |
 | Alarms | 24/7 on the server | while the script runs | only while the page is open |
-| Email | your SMTP server (`.env`) | your SMTP server (`.env`) | free [EmailJS](https://www.emailjs.com) account |
+| Email | your SMTP server (`stack.env`) | your SMTP server (`stack.env`) | free [EmailJS](https://www.emailjs.com) account |
 | Login | admin/admin, then your own; admin adds users | admin/admin, then your own; admin adds users | none (local only, one user) |
 | Settings stored | SQLite on the NAS | SQLite in `./data` | browser localStorage |
 
@@ -48,7 +48,7 @@ All three use the same `web/` page and the Docker and local server use the same 
 Behaves exactly like the NAS version, so it's the best way to test before deploying.
 1. Install [Python 3.10+](https://www.python.org/downloads/) (Windows: tick *Add python.exe to PATH*).
 2. Download the repo and double-click **`run.bat`** (Windows) or run **`./run.sh`** (Mac/Linux).
-3. The first start creates `.env` from `.env.example` and installs dependencies into `.venv`. Your browser then opens http://localhost:8000. Log in with `admin` / `admin` and choose your own username and password. Set up the email server in the page.
+3. The first start creates `.env` from `.env.example` (`stack.env` is read too and wins) and installs dependencies into `.venv`. Your browser then opens http://localhost:8000. Log in with `admin` / `admin` and choose your own username and password. Set up the email server in the page.
 4. Stop with Ctrl+C or by closing the window. Data is kept in `./data`.
 
 **Dev mode without login:** start **`./run-dev.sh`** (Mac/Linux) or **`run-dev.bat`** (Windows) instead. Same app and data, but no login screen (you are the admin). It only listens on this computer (localhost); never use it on the NAS.
@@ -63,13 +63,13 @@ Email in standalone mode: create a free EmailJS account, add an email service (e
 ## Install (Synology / any Docker host)
 ```sh
 git clone https://github.com/sbarrak/electricityfinland.git && cd electricityfinland
-cp .env.example .env   # optional: FINGRID_API_KEY
+cp .env.example stack.env   # optional: FINGRID_API_KEY (.env also works)
 docker compose up -d --build
 ```
 Open `http://<nas-ip>:8088`. On Synology you can also do this in **Container Manager → Project → Create** pointing at the folder.
 
-### Portainer (Synology, nothing cloned)
-Create a stack from **`docker-compose.portainer.yml`** (paste it into the Portainer web editor) and add the environment variables from `.env.example` as `stack.env` (or via *Load variables from .env file*), plus `DATA_DIR` (e.g. `/volume1/docker/electricity_price`) and `WEB_PORT`. Everything is pulled from GitHub; a short-lived `setup` container copies the web files and `nginx/default.conf` into `$DATA_DIR/web` and `$DATA_DIR/nginx` on the NAS, and the user data lives in `$DATA_DIR/data`. Nothing is lost on update: re-deploy the stack with *Re-pull image / rebuild* and the web files are refreshed, the data is untouched.
+### Portainer (nothing cloned)
+Create a stack from **`docker-compose.portainer.yml`** (paste it into the Portainer web editor) and load the variables from `.env.example` as `stack.env` (*Load variables from .env file*), plus `DATA_DIR` (absolute folder on the host that will hold `data/`, `web/` and `nginx/`) and `WEB_PORT`. Everything is pulled from GitHub; a short-lived `setup` container copies the web files and `nginx/default.conf` into `$DATA_DIR/web` and `$DATA_DIR/nginx` on the NAS, and the user data lives in `$DATA_DIR/data`. Nothing is lost on update: re-deploy the stack with *Re-pull image / rebuild* and the web files are refreshed, the data is untouched.
 
 ### Reverse proxy (HTTPS)
 DSM → **Control Panel → Login Portal → Advanced → Reverse Proxy → Create**:
@@ -89,7 +89,7 @@ Open **Email server** in the page: server (default `mail.laseleka.com`), port `5
 The app tells browsers to always check for new files, but a browser that cached an older version before this fix may still show it once. Reload with **Cmd+Option+R** (Safari) or **Ctrl+Shift+R** (Chrome/Edge/Firefox). If the server is not running, the login screen now says so instead of staying blank.
 
 ### Forgot the login?
-Add `RESET_ADMIN=1` to `.env`, restart once, log in with `admin` / `admin` (this resets the admin account; other users are not touched), choose new credentials, then remove the line. A user who forgot their password: the admin presses **Reset password** next to them and gives them a temporary one.
+Add `RESET_ADMIN=1` to `stack.env` (or `.env`), restart once, log in with `admin` / `admin` (this resets the admin account; other users are not touched), choose new credentials, then remove the line. A user who forgot their password: the admin presses **Reset password** next to them and gives them a temporary one.
 
 ## Costs
 Enter all per-kWh fees in **c/kWh including VAT**, as they appear on Finnish invoices. Default electricity tax (class I incl. security-of-supply fee) is 2.827 c/kWh. Monthly fees are shown as €/month; tick *Spread monthly fees* and enter your monthly consumption to include them in the total c/kWh.
@@ -97,7 +97,7 @@ Enter all per-kWh fees in **c/kWh including VAT**, as they appear on Finnish inv
 ## Layout
 ```
 docker-compose.yml   nginx (static + /api proxy) + app
-docker-compose.portainer.yml  same for Portainer/Synology: builds from GitHub, keeps data + web files on the NAS
+docker-compose.portainer.yml  same for Portainer: builds from GitHub, keeps data + web files on the NAS
 setup/Dockerfile     one-shot container that copies web/ and nginx config to the NAS folders
 app/main.py          FastAPI: fetchers, cost calc, alarms, notifications, login (SQLite in ./data)
 web/                 index.html, app.js, style.css (Chart.js), local.js (standalone backend)

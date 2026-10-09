@@ -1,5 +1,5 @@
 # One-shot "installer": copies the web files and the nginx config into folders
-# on the host (e.g. on the Synology), then exits. Build context = repo root.
+# on the host (the NAS), then exits. Build context = repo root.
 FROM alpine:3.20
 COPY web /seed/web
 COPY nginx/default.conf /seed/nginx/default.conf

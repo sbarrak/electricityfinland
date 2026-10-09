@@ -11,12 +11,12 @@ from fastapi import Depends, FastAPI, HTTPException, Request, Response
 from fastapi.staticfiles import StaticFiles
 
 ROOT = Path(__file__).resolve().parent.parent
-ENV_FILE = ROOT / ".env"
-if ENV_FILE.is_file():  # local run without Docker: read ../.env (real env vars win)
-    for line in ENV_FILE.read_text().splitlines():
-        k, sep, v = line.partition("=")
-        if sep and not k.strip().startswith("#"):
-            os.environ.setdefault(k.strip(), v.strip())
+for ENV_FILE in (ROOT / "stack.env", ROOT / ".env"):  # local run without Docker: read ../stack.env, then ../.env (real env vars win)
+    if ENV_FILE.is_file():
+        for line in ENV_FILE.read_text().splitlines():
+            k, sep, v = line.partition("=")
+            if sep and not k.strip().startswith("#"):
+                os.environ.setdefault(k.strip(), v.strip())
 
 log = logging.getLogger("elfi")
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
