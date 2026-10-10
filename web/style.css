@@ -139,3 +139,23 @@ dialog .preview{margin:0 0 6px}
 .adduser{display:grid;grid-template-columns:1fr 1fr auto;gap:8px;margin-top:10px}
 .adduser input{min-width:0}
 @media (max-width:600px){.adduser{grid-template-columns:1fr}}
+/* v5: extra send times that shrink with the window, data point box switch, schedule info, message example */
+.timesbox{margin:12px 0 4px}
+.timesbox>.hint{margin:0 0 8px}
+.times{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}  /* always 3 boxes in a row; they get narrower with the window instead of overlapping */
+.tbox{min-width:0;display:grid;gap:2px}
+.thead{display:flex;align-items:center;justify-content:space-between;gap:2px;min-width:0;font-size:.85em;color:var(--muted)}
+.thead span{overflow:hidden;white-space:nowrap}
+.thead .clr{flex:none;width:24px;min-width:0;min-height:0;height:24px;padding:0;background:transparent;color:var(--muted);border:0;font-weight:400;font-size:.9em}
+.tbox input[type=time]{display:block;width:100%;min-width:0;max-width:100%;height:40px;min-height:40px;padding:4px 2px;margin:0;overflow:hidden;
+  text-align:center;font-size:clamp(11px,3.6vw,15px);-webkit-appearance:none;appearance:none}  /* no scroll bar: a time too wide for a narrow box is cut off */
+.tbox input[type=time]::-webkit-datetime-edit{padding:0;display:block;overflow:hidden}
+.tbox input[type=time]::-webkit-date-and-time-value{text-align:center;min-height:1.2em;margin:0}
+.tbox input[type=time]::-webkit-calendar-picker-indicator{display:none}
+@media (min-width:480px){.tbox input[type=time]{font-size:15px;padding:4px 8px}.tbox input[type=time]::-webkit-calendar-picker-indicator{display:block}}
+.chartopts{margin-top:6px}
+#schedInfo .hint{margin:6px 0 0}
+#schedInfo .warn{color:var(--hi)}
+.preview{white-space:pre-line}
+dialog pre.full{margin:0;padding:10px;max-height:16em;overflow:auto;white-space:pre-wrap;font:13px/1.45 ui-monospace,Menlo,Consolas,monospace;
+  background:var(--bg);border:1px solid var(--line);border-radius:10px;color:var(--fg)}

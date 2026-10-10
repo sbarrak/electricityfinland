@@ -7,7 +7,7 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="theme-color" content="#0f172a">
 <title>Electricity Finland</title>
-<link rel="stylesheet" href="style.css?v=9">
+<link rel="stylesheet" href="style.css?v=10">
 </head>
 <body>
 <div id="fatal" class="fatal hidden"></div>
@@ -60,14 +60,14 @@
     </div>
     <div class="toolbar alarmbar" id="alarmbar">
       <span class="tlabel">Alarms</span>
-      <label class="sw hi"><input type="checkbox" data-k="high_on"><span>🔴 Above</span></label>
+      <label class="sw hi"><input type="checkbox" data-k="high_on" checked><span>🔴 Above</span></label>
       <input type="number" step="0.1" data-k="high" inputmode="decimal"><span class="u">c/kWh</span>
-      <label class="sw lo"><input type="checkbox" data-k="low_on"><span>🟢 Below</span></label>
+      <label class="sw lo"><input type="checkbox" data-k="low_on" checked><span>🟢 Below</span></label>
       <input type="number" step="0.1" data-k="low" inputmode="decimal"><span class="u">c/kWh</span>
       <select data-k="alarm_basis"><option value="total">on total cost</option><option value="spot">on spot</option></select>
       <label class="sw"><input type="checkbox" data-k="alarm_vat"><span>incl. VAT</span></label>
-      <label class="sw"><input type="checkbox" data-k="wa_on"><span>WhatsApp</span></label>
-      <label class="sw"><input type="checkbox" data-k="email_on"><span>Email</span></label>
+      <label class="sw" title="Send the scheduled messages to every recipient with a WhatsApp number and key"><input type="checkbox" data-k="wa_on" checked><span>WhatsApp alerts</span></label>
+      <label class="sw" title="Send the scheduled messages to every recipient with an email address"><input type="checkbox" data-k="email_on" checked><span>Email alerts</span></label>
     </div>
     <div class="toolbar">
       <select id="preset">
@@ -87,6 +87,7 @@
       <div id="vscroll" class="vscroll"><div></div></div>
     </div>
     <div id="hscroll" class="hscroll"><div></div></div>
+    <div class="chartopts"><label class="sw"><input type="checkbox" id="tip"><span>Show data point box</span></label></div>
     <p class="legend"><span id="info"></span> <span id="legend"></span></p>
   </section>
 
@@ -105,8 +106,17 @@
       <summary>Recipients <small>WhatsApp / email</small></summary>
       <div id="recips"></div>
       <button id="addRecip" class="ghost" type="button">+ Add recipient</button>
-      <p class="hint">Tick the box at the start of a row to select that recipient for <b>Send WhatsApp</b> / <b>Send email</b> (a test message through CallMeBot or your email server). A recipient gets WhatsApp when the phone and key are filled in, and email when the address is filled in. WhatsApp uses <a href="https://www.callmebot.com/blog/free-api-whatsapp-messages/" target="_blank" rel="noopener">CallMeBot</a>: each person sends “I allow callmebot to send me messages” to +34 644 51 95 23 from their phone and gets their own API key.</p>
+      <p class="hint">Every recipient in the list gets the scheduled messages: WhatsApp when the phone and key are filled in, email when the address is filled in. The tick box at the start of a row is <b>only</b> for tests: it selects who gets the test from <b>Send WhatsApp</b> / <b>Send email</b>. WhatsApp uses <a href="https://www.callmebot.com/blog/free-api-whatsapp-messages/" target="_blank" rel="noopener">CallMeBot</a>: each person sends “I allow callmebot to send me messages” to +34 644 51 95 23 from their phone and gets their own API key.</p>
       <div class="grid" id="notif"></div>
+      <div class="timesbox">
+        <p class="hint"><b>Extra send times</b> (<span id="tzNote">Finnish time</span>). The 14:00 message is always sent; add up to 3 more times. Every recipient in the list gets them. ✕ turns a time off.</p>
+        <div class="times">
+          <div class="tbox"><div class="thead"><span>Time 1</span><button type="button" class="clr" data-clr="extra_time_1" aria-label="Turn off time 1" title="Turn off">✕</button></div><input type="time" data-k="extra_time_1" aria-label="Extra send time 1"></div>
+          <div class="tbox"><div class="thead"><span>Time 2</span><button type="button" class="clr" data-clr="extra_time_2" aria-label="Turn off time 2" title="Turn off">✕</button></div><input type="time" data-k="extra_time_2" aria-label="Extra send time 2"></div>
+          <div class="tbox"><div class="thead"><span>Time 3</span><button type="button" class="clr" data-clr="extra_time_3" aria-label="Turn off time 3" title="Turn off">✕</button></div><input type="time" data-k="extra_time_3" aria-label="Extra send time 3"></div>
+        </div>
+      </div>
+      <div id="schedInfo"></div>
       <div class="tests">
         <button class="ghost openMsg" type="button">✉ Customize messages</button>
         <button class="ghost test" data-ch="whatsapp" type="button">💬 Send WhatsApp</button>
@@ -138,15 +148,17 @@
 
 <dialog id="msgDialog">
   <form method="dialog" id="msgForm">
-    <h2>Alarm messages</h2>
-    <p class="hint">Placeholders: <code id="phAlarm"></code><br>Daily summary: <code id="phSummary"></code></p>
-    <p class="hint">One message is sent every day between 14:00 and 14:05 with the fixed prices from 14:00 to 14:00 the next day: the summary, then one line for each time the price goes up to the high limit or down to the low limit. Under Recipients you can add up to 3 extra send times: the same message is then also sent at those times, with the prices from that time to the same time the next day (before 14:00 the next day is not fixed yet, so it then ends at midnight).</p>
-    <label>Price goes up to or above the high limit<textarea data-m="msg_high" rows="2"></textarea></label>
+    <h2>Messages</h2>
+    <p class="hint">Placeholders for the period lines: <code id="phAlarm"></code><br>Placeholders for the summary: <code id="phSummary"></code></p>
+    <p class="hint">A message is sent every day at 14:00 and at the extra times under Recipients, to every recipient in the list. It has a summary, then the hourly prices. When the price is at or above the high limit or at or below the low limit (switched on above the chart), one highlighted line is added for each such period and those hours are marked in the list. Extra times before 14:00 cover the time until midnight, because the next day is not fixed yet.</p>
+    <label>Line for a period at or above the high limit<textarea data-m="msg_high" rows="2"></textarea></label>
     <p class="hint preview" data-p="msg_high"></p>
-    <label>Price goes down to or below the low limit<textarea data-m="msg_low" rows="2"></textarea></label>
+    <label>Line for a period at or below the low limit<textarea data-m="msg_low" rows="2"></textarea></label>
     <p class="hint preview" data-p="msg_low"></p>
-    <label>Summary at the top of the daily message<textarea data-m="msg_summary" rows="2"></textarea></label>
+    <label>Summary at the top of the message (first line is bold)<textarea data-m="msg_summary" rows="3"></textarea></label>
     <p class="hint preview" data-p="msg_summary"></p>
+    <p class="hint">The whole message with made-up prices:</p>
+    <pre id="msgFull" class="full"></pre>
     <div class="dlgbtns">
       <button type="button" class="ghost" id="msgDefaults">Restore defaults</button>
       <span class="right"></span>
@@ -159,8 +171,8 @@
 
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns@3.0.0/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
-<script src="costs.js?v=10"></script>
-<script src="local.js?v=10"></script>
-<script src="app.js?v=10"></script>
+<script src="costs.js?v=11"></script>
+<script src="local.js?v=11"></script>
+<script src="app.js?v=11"></script>
 </body>
 </html>

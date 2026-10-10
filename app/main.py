@@ -1,5 +1,5 @@
 """Electricity Finland: spot price + wind monitor with WhatsApp/email alarms."""
-import asyncio, hashlib, hmac, json, logging, os, re, smtplib, sqlite3, ssl, time
+import asyncio, hashlib, hmac, html, json, logging, math, os, re, smtplib, sqlite3, ssl, threading, time
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
 from email.message import EmailMessage
@@ -34,23 +34,68 @@ DEFAULTS = {
     "vat": 25.5, "margin": 0.0, "transfer_day": 0.0, "transfer_night": 0.0,
     "night_start": 22, "night_end": 7, "tax": 2.827, "other": 0.0,
     "monthly_provider": 0.0, "monthly_transfer": 0.0, "monthly_kwh": 0.0, "spread_monthly": False,
-    "alarm_basis": "total", "alarm_vat": True, "high_on": False, "high": 20.0, "low_on": False, "low": 2.0,
+    "alarm_basis": "total", "alarm_vat": True, "high_on": True, "high": 20.0, "low_on": True, "low": 2.0,
     "summary_on": True, "extra_time_1": "", "extra_time_2": "", "extra_time_3": "",  # extra send times "HH:MM", empty = off
-    "wa_on": False, "email_on": False, "recipients": [],
-    # message templates, placeholders: see fill() / web/costs.js
-    "msg_high": "🔴 High price {price} c/kWh · {weekday} {date} {time}–{end} ({duration}) · limit {limit}",
-    "msg_low": "🟢 Low price {price} c/kWh · {weekday} {date} {time}–{end} ({duration}) · limit {limit}",
-    "msg_summary": "📅 Prices {from} – {to}: avg {avg}, min {min} at {min_time}, max {max} at {max_time} c/kWh ({basis})",
+    "wa_on": True, "email_on": True, "recipients": [], "alerts_v2": False,  # alerts_v2: one-time switch-on of limits/channels done
+    # message templates, placeholders: see fill() / web/costs.js. {limit} is the limit, {price} the highest / lowest hourly price
+    "msg_high": "▲ Above {limit} c/kWh: {weekday} {date} {time}–{end} ({duration}), highest {price}",
+    "msg_low": "▼ Below {limit} c/kWh: {weekday} {date} {time}–{end} ({duration}), lowest {price}",
+    "msg_summary": "Electricity prices {from} – {to}\nAverage {avg} · lowest {min} ({min_time}) · highest {max} ({max_time}) c/kWh, {basis}",
     # email server (SMTP relay); SMTP_* env vars are used when a field is empty
     "smtp_host": env("host"), "smtp_port": int(env("port", "587") or 587),
     "smtp_security": env("security", "starttls"), "smtp_verify": env("verify", "true").lower() != "false",
     "smtp_user": env("user"), "smtp_pass": env("pass"), "smtp_from": env("from"),
 }
 SECRET_FIELDS = ("smtp_pass",)
+OLD_MSGS = {  # earlier default texts: a saved copy of one of them is replaced by the new default
+    "msg_high": ("🔴 High price {price} c/kWh · {weekday} {date} {time}–{end} ({duration}) · limit {limit}",),
+    "msg_low": ("🟢 Low price {price} c/kWh · {weekday} {date} {time}–{end} ({duration}) · limit {limit}",),
+    "msg_summary": ("📅 Prices {from} – {to}: avg {avg}, min {min} at {min_time}, max {max} at {max_time} c/kWh ({basis})",),
+}
 EXTRA_TIMES = ("extra_time_1", "extra_time_2", "extra_time_3")
 TIME_RE = re.compile(r"([01]\d|2[0-3]):[0-5]\d")
 
-db = sqlite3.connect(os.getenv("DB_PATH", "/data/app.db"), check_same_thread=False)
+
+class Result:  # rows already fetched, so nothing touches the connection after its lock is released
+    def __init__(self, rows, lastrowid=None):
+        self.rows, self.lastrowid = rows, lastrowid
+
+    def fetchall(self):
+        return self.rows
+
+    def fetchone(self):
+        return self.rows[0] if self.rows else None
+
+    def __iter__(self):
+        return iter(self.rows)
+
+
+class Locked:
+    """The one SQLite connection is used by the alarm worker and by the web threads at the same time. Unguarded, concurrent
+    requests got empty results (random 500 errors and logouts), so every statement runs under a lock."""
+
+    def __init__(self, path):
+        self.con, self.lock = sqlite3.connect(path, check_same_thread=False), threading.RLock()
+
+    def execute(self, sql, args=()):
+        with self.lock:
+            cur = self.con.execute(sql, args)
+            return Result(cur.fetchall(), cur.lastrowid)
+
+    def executemany(self, sql, rows):
+        with self.lock:
+            self.con.executemany(sql, rows)
+
+    def executescript(self, sql):
+        with self.lock:
+            self.con.executescript(sql)
+
+    def commit(self):
+        with self.lock:
+            self.con.commit()
+
+
+db = Locked(os.getenv("DB_PATH", "/data/app.db"))
 db.executescript("""
 CREATE TABLE IF NOT EXISTS prices(ts INTEGER PRIMARY KEY, spot REAL);
 CREATE TABLE IF NOT EXISTS forecast(ts INTEGER PRIMARY KEY, spot REAL);
@@ -78,7 +123,12 @@ def clean_recipient(r):
 
 
 def settings(uid):  # every user has their own settings (recipients, email server, alarms, costs...)
-    s = {**DEFAULTS, **kv_get(f"settings:{uid}", {})}
+    saved = kv_get(f"settings:{uid}", {})
+    s = {**DEFAULTS, **{k: v for k, v in saved.items() if v not in OLD_MSGS.get(k, ())}}
+    if not s["alerts_v2"]:  # one time: the limits are checked, and WhatsApp + Email are on when both were off (nothing would be sent)
+        s.update(high_on=True, low_on=True, alerts_v2=True)
+        if not (s["wa_on"] or s["email_on"]):
+            s.update(wa_on=True, email_on=True)
     for k in ("smtp_host", "smtp_port", "smtp_security"):  # an empty saved value means "use the default"
         s[k] = s[k] or DEFAULTS[k]
     if not s["recipients"] and (s.get("wa_phone") or s.get("email_to")):  # migrate single-recipient settings
@@ -109,7 +159,7 @@ def value(s, ts, spot, kind="total", vat=True):
     energy = s["margin"] + s["other"] + s["monthly_provider"] * per
     sp = (spot * k if spot > 0 else spot) if vat else spot
     f = 1 if vat else 1 / k
-    return round(sp if kind == "spot" else transfer * f if kind == "transfer" else sp + (transfer + energy) * f, 3)
+    return sp if kind == "spot" else transfer * f if kind == "transfer" else sp + (transfer + energy) * f
 
 
 def upsert(table, rows, src=None):
@@ -190,13 +240,15 @@ async def fetch_forecasts(c, fingrid=True):
 
 
 # ---------------------------------------------------------------- notifications
-def send_mail(s, to, subject, text):
+def send_mail(s, to, subject, text, html=None):
     msg = EmailMessage()
     sender = s["smtp_from"] or s["smtp_user"]
     if "@" not in sender:
         raise ValueError("fill in 'From address' in Email server (the username is not an email address)")
     msg["From"], msg["To"], msg["Subject"] = sender, to, subject
     msg.set_content(text)
+    if html:  # plain text for old clients, HTML (highlighted rows) for the rest
+        msg.add_alternative(html, subtype="html")
     ctx = ssl.create_default_context()
     if not s["smtp_verify"]:
         ctx.check_hostname, ctx.verify_mode = False, ssl.CERT_NONE
@@ -210,8 +262,26 @@ def send_mail(s, to, subject, text):
         smtp.send_message(msg)
 
 
-async def notify(c, s, text, force=None):
-    """Send to all recipients. force: None = alarm (respects switches), 'all' | 'whatsapp' | 'email' = test."""
+WA_CHUNK = 1500  # CallMeBot takes the text in the URL: longer messages are sent as several parts
+
+
+def wa_parts(text):
+    parts, cur = [], ""
+    for line in text.split("\n"):
+        if cur and len(cur) + len(line) + 1 > WA_CHUNK:
+            parts.append(cur.rstrip())
+            cur = ""
+        cur += line + "\n"
+    return parts + [cur.rstrip()]
+
+
+def sent_ok(v):
+    return str(v).startswith("sent")
+
+
+async def notify(c, s, m, force=None):
+    """Send message m (see compose) to all recipients. force: None = scheduled message (respects the WhatsApp / Email switches),
+    'all' | 'whatsapp' | 'email' = test. Returns {"<who> WhatsApp|email": "sent" | "failed: ...", ...}."""
     out = {}
     wa = force in ("all", "whatsapp") or (force is None and s["wa_on"])
     em = force in ("all", "email") or (force is None and s["email_on"])
@@ -222,10 +292,14 @@ async def notify(c, s, text, force=None):
                 out[f"{who} WhatsApp"] = "missing CallMeBot API key"
             else:
                 try:
-                    res = await c.get("https://api.callmebot.com/whatsapp.php",
-                                      params={"phone": r["phone"], "text": text, "apikey": r["apikey"]})
-                    ok = res.status_code == 200 and "error" not in res.text.lower()
-                    out[f"{who} WhatsApp"] = "sent" if ok else f"failed: {res.status_code} {res.text[:120]}"
+                    for i, part in enumerate(wa_parts(m["wa"])):
+                        if i:
+                            await asyncio.sleep(3)
+                        res = await c.get("https://api.callmebot.com/whatsapp.php",
+                                          params={"phone": r["phone"], "text": part, "apikey": r["apikey"]})
+                        if not (res.status_code == 200 and "error" not in res.text.lower()):
+                            raise RuntimeError(f"{res.status_code} {res.text[:120]}")
+                    out[f"{who} WhatsApp"] = "sent"
                 except Exception as e:
                     out[f"{who} WhatsApp"] = f"failed: {e}"
         if em and r["email"]:
@@ -233,7 +307,7 @@ async def notify(c, s, text, force=None):
                 out[f"{who} email"] = "email server not configured"
             else:
                 try:
-                    await asyncio.to_thread(send_mail, s, r["email"], "Electricity price alert", text)
+                    await asyncio.to_thread(send_mail, s, r["email"], m["subject"], m["text"], m.get("html"))
                     out[f"{who} email"] = "sent"
                 except smtplib.SMTPAuthenticationError:
                     out[f"{who} email"] = "failed: the mail server refused the username or password"
@@ -242,15 +316,23 @@ async def notify(c, s, text, force=None):
                 except Exception as e:
                     out[f"{who} email"] = f"failed: {type(e).__name__}: {e}"
     if not out:
-        out["info"] = {"whatsapp": "the selected recipients have no WhatsApp number",
-                       "email": "the selected recipients have no email address"}.get(force, "no recipient with a WhatsApp number or email address")
-    log.info("notify %s -> %s", text[:60], out)
+        if force is None and not (wa or em):
+            out["info"] = "the WhatsApp alerts and Email alerts switches are both off"
+        else:
+            out["info"] = {"whatsapp": "the selected recipients have no WhatsApp number",
+                           "email": "the selected recipients have no email address"}.get(force, "no recipient with a WhatsApp number or email address")
+    log.info("notify %s -> %s", m["subject"], out)
     return out
 
 
-# ---------------------------------------------------------------- alarms
-def price_of(s, ts, spot):
-    return value(s, ts, spot, s["alarm_basis"], s["alarm_vat"])
+# ---------------------------------------------------------------- the message
+def rnd(x, d):
+    """Round half up to d decimals. Float noise is cleaned first, so the result is the same as rnd() in web/costs.js."""
+    return math.floor(round(x, 9) * 10 ** d + 0.5) / 10 ** d
+
+
+def price_of(s, ts, spot):  # c/kWh on the alarm basis, 3 decimals
+    return rnd(value(s, ts, spot, s["alarm_basis"], s["alarm_vat"]), 3)
 
 
 def basis(s):
@@ -282,6 +364,25 @@ def daystamp(ts):
     return f"{WEEKDAYS[d.weekday()]} {d:%d.%m.} {d:%H:%M}"
 
 
+def dayname(ts):
+    d = datetime.fromtimestamp(ts, TZ)
+    return f"{WEEKDAYS[d.weekday()]} {d:%d.%m.}"
+
+
+def hourly(s, rows, a, b):
+    """Hourly prices for a..b: [{"t": start, "end": end, "p": average price}] (c/kWh on the alarm basis, 2 decimals).
+    Slots (15 min or 1 h) are averaged per clock hour; a part hour at either end of the window stays a part hour."""
+    acc = {}
+    for i, (t, v) in enumerate(rows):
+        step = min(3600, rows[i + 1][0] - t) if i + 1 < len(rows) else 900
+        lo, hi = max(t, a), min(t + step, b)
+        if hi > lo:
+            h = acc.setdefault(lo // 3600, {"t": lo, "end": hi, "sum": 0.0})
+            h["t"], h["end"] = min(h["t"], lo), max(h["end"], hi)
+            h["sum"] += price_of(s, t, v) * (hi - lo)
+    return [{"t": h["t"], "end": h["end"], "p": rnd(h["sum"] / (h["end"] - h["t"]), 2)} for _, h in sorted(acc.items())]
+
+
 def window_fields(s, kind, w):
     ps = [p for p, _ in w["ps"]]
     d = datetime.fromtimestamp(w["start"], TZ)
@@ -291,93 +392,147 @@ def window_fields(s, kind, w):
             "duration": duration(w["end"] - w["start"]), "limit": f"{s[kind]:g}", "basis": basis(s)}
 
 
-def daily_message(s, rows, a, b):
-    """Message for the fixed prices a..b: a summary line plus one line per crossing.
-    High: price goes from below the limit to >= limit. Low: price goes from above the limit to <= limit.
-    Mirrors dailyMessage() in web/costs.js."""
-    pts = []
-    for i, (t, v) in enumerate(rows):
-        step = min(3600, rows[i + 1][0] - t) if i + 1 < len(rows) else 900
-        pts.append((t, price_of(s, t, v), step))
-    hit = {"high": lambda p: p >= s["high"], "low": lambda p: p <= s["low"]}
-    lines = []
-    for i in range(1, len(pts)):
-        if not a <= pts[i][0] < b:
-            continue
-        for kind in ("high", "low"):
-            if s[kind + "_on"] and hit[kind](pts[i][1]) and not hit[kind](pts[i - 1][1]):
-                j, ps = i, []
-                while j < len(pts) and hit[kind](pts[j][1]):
-                    ps.append((pts[j][1], pts[j][2]))
-                    j += 1
-                end = pts[j][0] if j < len(pts) else pts[-1][0] + pts[-1][2]
-                lines.append((pts[i][0], fill(s["msg_" + kind], window_fields(s, kind, {"start": pts[i][0], "end": end, "ps": ps}))))
-    out = []
-    day = [p for p in pts if a <= p[0] < b]
-    if s["summary_on"] and day:
-        lo, hi = min(day, key=lambda r: r[1]), max(day, key=lambda r: r[1])
-        avg = sum(p * n for _, p, n in day) / sum(n for *_, n in day)
-        out.append(fill(s["msg_summary"], {"from": daystamp(a), "to": daystamp(b), "avg": f"{avg:.2f}",
-                                           "min": f"{lo[1]:.2f}", "min_time": daystamp(lo[0]), "max": f"{hi[1]:.2f}",
-                                           "max_time": daystamp(hi[0]), "basis": basis(s),
-                                           "weekday": WEEKDAYS[datetime.fromtimestamp(a, TZ).weekday()],
-                                           "date": datetime.fromtimestamp(a, TZ).strftime("%d.%m.")}))
-        if (s["high_on"] or s["low_on"]) and not lines:
-            out.append("No crossings of your limits.")
-    out += [text for _, text in sorted(lines)]
-    return "\n".join(out)
+MARK = {"high": "▲", "low": "▼"}  # plain geometric marks (no emoji) so highlighted rows also show in plain text
+BOLD = {"title", "alert_high", "alert_low", "row_high", "row_low"}
 
 
-def published_message(s, a, b):
-    """The daily message for the fixed prices a..b, or None while they are not all published yet."""
-    rows = db.execute("SELECT ts, spot FROM prices WHERE ts>=? ORDER BY ts", (a - 3600,)).fetchall()
-    if not rows or rows[-1][0] < b - 900:
+def compose(s, rows, a, b, test=False, note=""):
+    """The message for the prices a..b (seconds), or None without any price in that period.
+    Always: a summary and the hourly prices. A high / low limit that is switched on and crossed adds one line for every
+    period at or above / below it (also one that began before a) and highlights those hours in the list.
+    Returns {"subject", "wa" (WhatsApp, *bold*), "text" (plain email), "html", "alert"}. Mirrors composeMessage() in web/costs.js."""
+    hours = hourly(s, rows, a, b)
+    if not hours:
         return None
-    return daily_message(s, rows, a, b)
+    hit = {"high": lambda p: p >= s["high"], "low": lambda p: p <= s["low"]}
+    for h in hours:  # 2-decimal prices: what is shown is what is compared
+        h["flag"] = next((k for k in hit if s[k + "_on"] and hit[k](h["p"])), None)
+    spans = []  # periods in a row at or beyond a limit: (start, kind, line)
+    for i, h in enumerate(hours):
+        if h["flag"] and not (i and hours[i - 1]["flag"] == h["flag"] and hours[i - 1]["end"] == h["t"]):
+            j = i
+            while j + 1 < len(hours) and hours[j + 1]["flag"] == h["flag"] and hours[j + 1]["t"] == hours[j]["end"]:
+                j += 1
+            ps = [(x["p"], x["end"] - x["t"]) for x in hours[i:j + 1]]
+            f = window_fields(s, h["flag"], {"start": h["t"], "end": hours[j]["end"], "ps": ps})
+            spans.append((h["t"], h["flag"], fill(s["msg_" + h["flag"]], f)))
+    sections = []
+    if test:
+        sections.append([("title", "TEST MESSAGE"), ("text", "Example of the scheduled message, with the prices from now on.")])
+    if s["summary_on"]:
+        tot = sum(h["end"] - h["t"] for h in hours)
+        lo, hi = min(hours, key=lambda h: h["p"]), max(hours, key=lambda h: h["p"])
+        d = datetime.fromtimestamp(a, TZ)
+        text = fill(s["msg_summary"], {"from": daystamp(a), "to": daystamp(b), "avg": f"{sum(h['p'] * (h['end'] - h['t']) for h in hours) / tot:.2f}",
+                                       "min": f"{lo['p']:.2f}", "min_time": daystamp(lo["t"]), "max": f"{hi['p']:.2f}",
+                                       "max_time": daystamp(hi["t"]), "basis": basis(s), "weekday": WEEKDAYS[d.weekday()],
+                                       "date": d.strftime("%d.%m.")})
+        sections.append([("title" if i == 0 else "text", ln) for i, ln in enumerate(text.split("\n"))])
+    if spans:
+        sections.append([("alert_" + k, ln) for _, k, ln in sorted(spans)])
+    elif s["high_on"] or s["low_on"]:
+        lim = [f"{w} {s[k]:g}" for k, w in (("high", "above"), ("low", "below")) if s[k + "_on"]]
+        sections.append([("text", f"No prices {' or '.join(lim)} c/kWh in this period.")])
+    if note:
+        sections.append([("text", note)])
+    rowsec, day = [("heading", f"Hourly prices, c/kWh ({basis(s)})")], None
+    for h in hours:
+        if dayname(h["t"]) != day:
+            day = dayname(h["t"])
+            rowsec.append(("day", day))
+        rowsec.append(("row_" + h["flag"] if h["flag"] else "row", f"{MARK[h['flag']] + ' ' if h['flag'] else ''}{fmt(h['t'])}  {h['p']:.2f}"))
+    sections.append(rowsec)
+    return {"subject": ("[TEST] " if test else "") + f"Electricity prices {dayname(a)}" + (" · price alert" if spans else ""),
+            "wa": "\n\n".join("\n".join(f"*{t}*" if k in BOLD and t else t for k, t in sec) for sec in sections),
+            "text": "\n\n".join("\n".join(t for _, t in sec) for sec in sections),
+            "html": render_html(sections), "alert": bool(spans)}
 
 
-def daily_alarm(s, uid):
-    """Once a day from 14:00 (normally 14:00–14:05): the fixed prices from 14:00 today to 14:00 tomorrow."""
-    now = datetime.now(TZ)
-    if now.hour < SEND_HOUR:
-        return []
-    start = now.replace(hour=SEND_HOUR, minute=0, second=0, microsecond=0)
-    a, b, key = int(start.timestamp()), int((start + timedelta(days=1)).timestamp()), start.date().isoformat()
-    if kv_get(f"daily_sent:{uid}") == key:
-        return []
-    msg = published_message(s, a, b)  # None: next day not published yet
-    if msg is None:
-        return []
-    kv_set(f"daily_sent:{uid}", key)
-    return [msg] if msg else []
+def render_html(sections):
+    hi, lo = "background:#fee2e2;color:#991b1b", "background:#dcfce7;color:#166534"
+    style = {"title": "font-size:16px;font-weight:700", "text": "", "heading": "font-weight:700", "day": "color:#64748b;margin-top:8px",
+             "row": "padding:1px 6px;white-space:pre",
+             "alert_high": f"margin:4px 0;padding:6px 10px;font-weight:700;border-left:4px solid #dc2626;{hi}",
+             "alert_low": f"margin:4px 0;padding:6px 10px;font-weight:700;border-left:4px solid #16a34a;{lo}",
+             "row_high": f"padding:1px 6px;white-space:pre;font-weight:700;{hi}", "row_low": f"padding:1px 6px;white-space:pre;font-weight:700;{lo}"}
+    body = "".join('<div style="margin:0 0 16px">' + "".join(f'<div style="{style[k]}">{html.escape(t)}</div>' for k, t in sec) + "</div>"
+                   for sec in sections)
+    return f'<div style="font:14px/1.45 -apple-system,Segoe UI,Roboto,sans-serif;color:#0f172a;max-width:520px">{body}</div>'
 
 
-EXTRA_GRACE = 3 * 3600  # an extra time still sends up to 3 h late (e.g. waiting for the prices or after a restart)
+# ---------------------------------------------------------------- when messages are sent
+EXTRA_GRACE = 3 * 3600  # an extra time still sends up to 3 h late (waiting for the prices, or after a restart)
+DAILY_GRACE = 10 * 3600  # the 14:00 message: any time until midnight
+PARTIAL_AFTER = 90 * 60  # prices still not published this long after the send time: send what exists, with a note
+RETRY_AFTER, MAX_TRIES = 300, 4  # a message nobody received (mail server / CallMeBot down) is tried again every 5 min
 
 
-def extra_alarms(s, uid):
-    """The same message at up to 3 more times of day: the prices from that time to the same time tomorrow.
-    Before 14:00 tomorrow is not fixed yet, so the message then ends at midnight. Mirrors extraAlarms() in web/local.js."""
-    now, out, seen = datetime.now(TZ), [], {f"{SEND_HOUR}:00"}
+def schedule_times(s):
+    """[(slot, "HH:MM")]: the daily 14:00 message plus the valid, distinct extra times."""
+    daily = f"{SEND_HOUR}:00"
+    out, seen = [("daily", daily)], {daily}
     for i, k in enumerate(EXTRA_TIMES):
-        t = s.get(k) or ""
-        if not TIME_RE.fullmatch(t) or t in seen:
-            continue
-        seen.add(t)
-        start = now.replace(hour=int(t[:2]), minute=int(t[3:]), second=0, microsecond=0)
-        key = f"{start.date().isoformat()} {t}"
-        if not 0 <= (now - start).total_seconds() < EXTRA_GRACE or kv_get(f"extra_sent:{uid}:{i}") == key:
-            continue
-        end = start + timedelta(days=1)
-        if start.hour < SEND_HOUR:
-            end = start.replace(hour=0, minute=0) + timedelta(days=1)
-        msg = published_message(s, int(start.timestamp()), int(end.timestamp()))
-        if msg is None:
-            continue
-        kv_set(f"extra_sent:{uid}:{i}", key)
-        if msg:
-            out.append(msg)
+        t = str(s.get(k) or "").strip()
+        if TIME_RE.fullmatch(t) and t not in seen:
+            seen.add(t)
+            out.append((f"extra:{i}", t))
     return out
+
+
+def sent_key(uid, slot):
+    return f"daily_sent:{uid}" if slot == "daily" else f"extra_sent:{uid}:{slot[6:]}"
+
+
+def due_messages(s, uid):
+    """Messages whose time has come and that nobody has received yet: [{"slot", "key", "msg"}].
+    The prices are the fixed ones from the send time to the same time the next day; when that time is before 14:00 the next
+    day is not fixed yet, so the message ends at midnight. The same message for every recipient, at every time."""
+    now, out = datetime.now(TZ), []
+    for slot, t in schedule_times(s):
+        for day in (now.date(), now.date() - timedelta(days=1)):  # yesterday too: the grace period may reach past midnight
+            start = datetime.combine(day, datetime.min.time(), TZ).replace(hour=int(t[:2]), minute=int(t[3:]))
+            late = (now - start).total_seconds()
+            key = day.isoformat() if slot == "daily" else f"{day.isoformat()} {t}"
+            if not 0 <= late < (DAILY_GRACE if slot == "daily" else EXTRA_GRACE) or kv_get(sent_key(uid, slot)) == key:
+                continue
+            tr = kv_get(f"tries:{uid}:{slot}") or {}
+            if tr.get("key") == key and (tr["n"] >= MAX_TRIES or time.time() - tr["at"] < RETRY_AFTER):
+                continue
+            a = int(start.timestamp())
+            end = start + timedelta(days=1) if start.hour >= SEND_HOUR else datetime.combine(day + timedelta(days=1), datetime.min.time(), TZ)
+            b = int(end.timestamp())
+            rows = db.execute("SELECT ts, spot FROM prices WHERE ts>=? ORDER BY ts", (a - 3600,)).fetchall()
+            note = ""
+            if not rows or rows[-1][0] < b - 3600:  # the end of the period is not published yet: wait for it
+                if late < PARTIAL_AFTER or not rows or rows[-1][0] < a:
+                    continue
+                b, note = int(rows[-1][0] + 900), f"Prices after {daystamp(rows[-1][0] + 900)} are not published yet."
+            msg = compose(s, rows, a, b, note=note)
+            if msg:
+                out.append({"slot": slot, "key": key, "time": t, "msg": msg})
+    return out
+
+
+def record_send(uid, due, out):
+    """Remember the outcome: delivered to at least one recipient = done; only failures = try again later (up to MAX_TRIES);
+    nobody to send to (switches off, no recipients) = nothing is used up, it is tried again until the grace period ends."""
+    ok = [k for k, v in out.items() if sent_ok(v)]
+    bad = {k: v for k, v in out.items() if k != "info" and not sent_ok(v)}
+    if ok:
+        kv_set(sent_key(uid, due["slot"]), due["key"])
+    elif bad:
+        tr = kv_get(f"tries:{uid}:{due['slot']}") or {}
+        kv_set(f"tries:{uid}:{due['slot']}", {"key": due["key"], "at": time.time(), "n": (tr["n"] if tr.get("key") == due["key"] else 0) + 1})
+        log.warning("message of %s not delivered, will try again: %s", due["time"], bad)
+    if ok or bad:
+        kv_set(f"last_send:{uid}", {"at": int(time.time()), "time": due["time"], "ok": bool(ok) and not bad, "results": out})
+
+
+def schedule_info(uid, s):
+    """For the page: what is scheduled, who would get it, and how the last scheduled message went."""
+    return {"times": [t for _, t in schedule_times(s)], "last": kv_get(f"last_send:{uid}"),
+            "wa": sum(1 for r in s["recipients"] if r["phone"] and r["apikey"]),
+            "email": sum(1 for r in s["recipients"] if r["email"]) if s["smtp_host"] else 0}
 
 
 def has_tomorrow():
@@ -404,10 +559,10 @@ async def worker():
             for (uid,) in db.execute("SELECT id FROM users").fetchall():
                 try:
                     s = settings(uid)
-                    for m in daily_alarm(s, uid) + extra_alarms(s, uid):
-                        await notify(c, s, m)
+                    for due in due_messages(s, uid):
+                        record_send(uid, due, await notify(c, s, due["msg"]))
                 except Exception:
-                    log.exception("alarm check failed for user %s", uid)
+                    log.exception("scheduled message failed for user %s", uid)
             await asyncio.sleep(60)
 
 
@@ -581,7 +736,8 @@ async def delete_user(uid: int, me_: dict = Depends(admin)):
     if uid == me_["id"]:
         raise HTTPException(400, "you cannot remove yourself")
     db.execute("DELETE FROM users WHERE id=?", (uid,))
-    db.execute("DELETE FROM kv WHERE k IN (?, ?)", (f"settings:{uid}", f"daily_sent:{uid}"))
+    db.execute("DELETE FROM kv WHERE k IN (?, ?, ?) OR k LIKE ? OR k LIKE ?",
+               (f"settings:{uid}", f"daily_sent:{uid}", f"last_send:{uid}", f"extra_sent:{uid}:%", f"tries:{uid}:%"))
     db.commit()
     return await list_users(me_)
 
@@ -600,10 +756,11 @@ async def data(days_back: int = 60, u: dict = Depends(user)):
     fg_end = max(fg) if fg else 0
     wind = sorted({**{t: v for t, v in q("SELECT ts, mw FROM wind WHERE src='npf' AND ts>=?", start)
                       if t > fg_end or not fg}, **fg}.items())
+    st = settings(u["id"])
     return {"actual": q("SELECT ts, spot FROM prices WHERE ts>=? ORDER BY ts", start),  # c/kWh excl. VAT
             "forecast": q("SELECT ts, spot FROM forecast WHERE ts>=? ORDER BY ts", start),
             "wind": wind, "wind_actual": q("SELECT ts, mw FROM wind WHERE src='actual' AND ts>=? ORDER BY ts", start),
-            "settings": public(settings(u["id"])), "fingrid": bool(FINGRID_KEY)}
+            "settings": public(st), "schedule": schedule_info(u["id"], st), "fingrid": bool(FINGRID_KEY)}
 
 
 LAST_REFRESH = [0.0]
@@ -681,10 +838,11 @@ async def test_notify(body: dict | None = None, u: dict = Depends(user)):
             s["recipients"] = [r for i, r in enumerate(s["recipients"]) if i in only]
             if not s["recipients"]:
                 raise HTTPException(400, "select at least one recipient")
-        a = int(time.time() // 900 * 900)  # example: the daily message for the published prices from now on
+        a = int(time.time() // 900 * 900)  # example: the scheduled message for the published prices from now on
         rows = db.execute("SELECT ts, spot FROM prices WHERE ts>=? ORDER BY ts", (a - 3600,)).fetchall()
-        text = "✅ Test message from Electricity Finland. Example of the daily message:\n" + (daily_message(s, rows, a, a + 86400) or "(no published prices yet)")
-        return await notify(c, s, text, force=channel)
+        msg = compose(s, rows, a, a + 86400, test=True) or {
+            "subject": "[TEST] Electricity prices", "wa": "TEST MESSAGE\nNo published prices yet.", "text": "TEST MESSAGE\nNo published prices yet.", "html": None}
+        return await notify(c, s, msg, force=channel)
 
 
 # Local run without nginx: serve the web page from ../web (in Docker nginx does this)

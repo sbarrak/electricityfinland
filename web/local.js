@@ -9,8 +9,8 @@
   const DEFAULTS = {
     vat: 25.5, margin: 0, transfer_day: 0, transfer_night: 0, night_start: 22, night_end: 7, tax: 2.827, other: 0,
     monthly_provider: 0, monthly_transfer: 0, monthly_kwh: 0, spread_monthly: false,
-    alarm_basis: 'total', alarm_vat: true, high_on: false, high: 20, low_on: false, low: 2, summary_on: true, extra_time_1: '', extra_time_2: '', extra_time_3: '', ...MSG_DEFAULTS,
-    wa_on: false, email_on: false, recipients: [],
+    alarm_basis: 'total', alarm_vat: true, high_on: true, high: 20, low_on: true, low: 2, summary_on: true, extra_time_1: '', extra_time_2: '', extra_time_3: '', ...MSG_DEFAULTS,
+    wa_on: true, email_on: true, recipients: [], alerts_v2: false,
     ejs_service: '', ejs_template: '', ejs_key: '', fingrid_key: '',
   };
   const get = (k, d) => { try { return JSON.parse(localStorage.getItem('elfi_' + k)) ?? d; } catch { return d; } };
@@ -21,7 +21,13 @@
   const clean = r => ({ name: String(r.name || '').slice(0, 60), phone: String(r.phone || '').trim(), apikey: String(r.apikey || '').trim(),
     email: String(r.email || '').trim(), wa: !!r.wa, mail: !!r.mail });
   function settings() {
-    const s = { ...DEFAULTS, ...get('settings', {}) };
+    const saved = get('settings', {});
+    for (const [k, olds] of Object.entries(OLD_MSGS)) if (olds.includes(saved[k])) delete saved[k];  // an earlier default text: use the new default
+    const s = { ...DEFAULTS, ...saved };
+    if (!s.alerts_v2) {  // one time: the limits are checked, and WhatsApp + Email are on when both were off (nothing would be sent)
+      Object.assign(s, { high_on: true, low_on: true, alerts_v2: true });
+      if (!s.wa_on && !s.email_on) s.wa_on = s.email_on = true;
+    }
     if (!s.recipients.length && (s.wa_phone || s.email_to))  // migrate single-recipient settings
       s.recipients = [clean({ name: 'Me', phone: s.wa_phone, apikey: s.wa_apikey, email: s.email_to, wa: true, mail: true })];
     return s;
@@ -88,60 +94,89 @@
     TABLES.forEach(t => { if (t !== 'prices') for (const k in db[t]) if (+k < cutoff) delete db[t][k]; put(t, db[t]); });
   }
 
-  async function notify(s, text, force = null) {  // force: null = alarm, 'all' | 'whatsapp' | 'email' = test
+  const WA_CHUNK = 1500;  // CallMeBot takes the text in the URL: longer messages are sent as several parts
+  const waParts = text => {
+    const parts = []; let cur = '';
+    for (const line of text.split('\n')) { if (cur && cur.length + line.length + 1 > WA_CHUNK) { parts.push(cur.trimEnd()); cur = ''; } cur += line + '\n'; }
+    return [...parts, cur.trimEnd()];
+  };
+  const sentOk = v => String(v).startsWith('sent');
+  async function notify(s, m, force = null) {  // m: {subject, wa, text}. force: null = scheduled message, 'all' | 'whatsapp' | 'email' = test
     const out = {}, wa = ['all', 'whatsapp'].includes(force) || (!force && s.wa_on), em = ['all', 'email'].includes(force) || (!force && s.email_on);
     for (const r of s.recipients) {
       const who = r.name || r.phone || r.email;
       if (wa && r.phone) {
         if (!r.apikey) out[who + ' WhatsApp'] = 'missing CallMeBot API key';
-        else  // CallMeBot sends no CORS headers: fire-and-forget, the response cannot be read
-          await fetch(`https://api.callmebot.com/whatsapp.php?phone=${encodeURIComponent(r.phone)}&apikey=${encodeURIComponent(r.apikey)}&text=${encodeURIComponent(text)}`, { mode: 'no-cors' })
-            .then(() => out[who + ' WhatsApp'] = 'sent (check the phone)', e => out[who + ' WhatsApp'] = 'failed: ' + e.message);
+        else {  // CallMeBot sends no CORS headers: fire-and-forget, the response cannot be read
+          try {
+            for (const [i, part] of waParts(m.wa).entries()) {
+              if (i) await new Promise(res => setTimeout(res, 3000));
+              await fetch(`https://api.callmebot.com/whatsapp.php?phone=${encodeURIComponent(r.phone)}&apikey=${encodeURIComponent(r.apikey)}&text=${encodeURIComponent(part)}`, { mode: 'no-cors' });
+            }
+            out[who + ' WhatsApp'] = 'sent (check the phone)';
+          } catch (e) { out[who + ' WhatsApp'] = 'failed: ' + e.message; }
+        }
       }
       if (em && r.email) {
         if (!(s.ejs_service && s.ejs_template && s.ejs_key)) out[who + ' email'] = 'EmailJS not configured';
         else await fetch('https://api.emailjs.com/api/v1.0/email/send', {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ service_id: s.ejs_service, template_id: s.ejs_template, user_id: s.ejs_key,
-            template_params: { to_email: r.email, subject: 'Electricity price alert', message: text } }),
+            template_params: { to_email: r.email, subject: m.subject, message: m.text } }),
         }).then(async res => out[who + ' email'] = res.ok ? 'sent' : 'failed: ' + await res.text(), e => out[who + ' email'] = 'failed: ' + e.message);
       }
     }
-    if (!Object.keys(out).length) out.info = { whatsapp: 'the selected recipients have no WhatsApp number', email: 'the selected recipients have no email address' }[force] || 'no recipient with a WhatsApp number or email address';
-    console.info('notify', text, out);
+    if (!Object.keys(out).length) out.info = !force && !(wa || em) ? 'the WhatsApp alerts and Email alerts switches are both off'
+      : { whatsapp: 'the selected recipients have no WhatsApp number', email: 'the selected recipients have no email address' }[force] || 'no recipient with a WhatsApp number or email address';
+    console.info('notify', m.subject, out);
     return out;
   }
 
-  function dailyAlarm(s) {  // once a day from 14:00: the fixed prices from 14:00 today to 14:00 tomorrow
-    const d = new Date(); if (d.getHours() < 14) return [];
-    d.setHours(14, 0, 0, 0);
-    const a = d / 1000, b = a + 86400, key = d.toDateString(), list = rows('prices', a - 3600);
-    if (get('daily_sent') === key || !list.length || list.at(-1)[0] < b - 900) return [];
-    put('daily_sent', key);
-    const msg = dailyMessage(s, list, a, b);
-    return msg ? [msg] : [];
+  // ---- when messages are sent. Mirrors due_messages() in app/main.py: the daily 14:00 message plus up to 3 extra times, each with
+  // the prices from that time to the same time tomorrow (before 14:00 tomorrow is not fixed yet: until midnight).
+  const SEND_HOUR = 14, DAILY_GRACE = 10 * 3600, EXTRA_GRACE = 3 * 3600, PARTIAL_AFTER = 90 * 60, RETRY_AFTER = 300, MAX_TRIES = 4;
+  const TIME_RE = /^([01]\d|2[0-3]):[0-5]\d$/;
+  const isoDay = d => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  function scheduleTimes(s) {
+    const out = [['daily', '14:00']], seen = new Set(['14:00']);
+    ['extra_time_1', 'extra_time_2', 'extra_time_3'].forEach((k, i) => {
+      const t = String(s[k] || '').trim();
+      if (TIME_RE.test(t) && !seen.has(t)) { seen.add(t); out.push(['extra:' + i, t]); }
+    });
+    return out;
   }
-
-  // up to 3 extra times of day: the prices from that time to the same time tomorrow (before 14:00 tomorrow is not fixed yet: until midnight)
-  function extraAlarms(s) {
-    const out = [], seen = new Set(['14:00']), t0 = new Date();
-    for (const k of ['extra_time_1', 'extra_time_2', 'extra_time_3']) {
-      const t = s[k] || '';
-      if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(t) || seen.has(t)) continue;
-      seen.add(t);
-      const d = new Date(); d.setHours(+t.slice(0, 2), +t.slice(3), 0, 0);
-      const key = d.toDateString() + ' ' + t, late = (t0 - d) / 1000;
-      if (late < 0 || late >= 3 * 3600 || get('sent_' + k) === key) continue;
-      const a = d / 1000, b = d.getHours() < 14 ? midnight(1) / 1000 : a + 86400, list = rows('prices', a - 3600);
-      if (!list.length || list.at(-1)[0] < b - 900) continue;
-      put('sent_' + k, key);
-      const msg = dailyMessage(s, list, a, b);
-      if (msg) out.push(msg);
+  function dueMessages(s) {
+    const n = new Date(), out = [];
+    for (const [slot, t] of scheduleTimes(s)) for (const back of [0, 1]) {  // yesterday too: the grace period may reach past midnight
+      const start = new Date(n.getFullYear(), n.getMonth(), n.getDate() - back, +t.slice(0, 2), +t.slice(3)), late = (n - start) / 1000;
+      const key = slot === 'daily' ? isoDay(start) : `${isoDay(start)} ${t}`;
+      const legacy = slot === 'daily' ? get('daily_sent') === start.toDateString() : get('sent_extra_time_' + (+slot.slice(6) + 1)) === `${start.toDateString()} ${t}`;  // sent by the previous version
+      if (late < 0 || late >= (slot === 'daily' ? DAILY_GRACE : EXTRA_GRACE) || get('sent_' + slot) === key || legacy) continue;
+      const tr = get('tries_' + slot, {});
+      if (tr.key === key && (tr.n >= MAX_TRIES || now() - tr.at < RETRY_AFTER)) continue;
+      const a = start / 1000, y = start.getFullYear(), mo = start.getMonth(), d = start.getDate();
+      let b = (start.getHours() >= SEND_HOUR ? new Date(y, mo, d + 1, start.getHours(), start.getMinutes()) : new Date(y, mo, d + 1)) / 1000, note = '';
+      const list = rows('prices', a - 3600);
+      if (!list.length || list.at(-1)[0] < b - 3600) {  // the end of the period is not published yet: wait for it
+        if (late < PARTIAL_AFTER || !list.length || list.at(-1)[0] < a) continue;
+        b = list.at(-1)[0] + 900; note = `Prices after ${daystamp(b)} are not published yet.`;
+      }
+      const msg = composeMessage(s, list, a, b, { note });
+      if (msg) out.push({ slot, key, time: t, msg });
     }
     return out;
   }
+  function recordSend(due, out) {  // delivered to someone = done; only failures = try again later; nobody to send to = tried again until the grace period ends
+    const ok = Object.values(out).some(sentOk), bad = Object.entries(out).filter(([k, v]) => k !== 'info' && !sentOk(v));
+    if (ok) put('sent_' + due.slot, due.key);
+    else if (bad.length) { const tr = get('tries_' + due.slot, {}); put('tries_' + due.slot, { key: due.key, at: now(), n: (tr.key === due.key ? tr.n : 0) + 1 }); console.warn('message not delivered, will try again', bad); }
+    if (ok || bad.length) put('last_send', { at: Math.floor(now()), time: due.time, ok: ok && !bad.length, results: out });
+  }
+  const scheduleInfo = s => ({ times: scheduleTimes(s).map(x => x[1]), last: get('last_send', null),
+    wa: s.recipients.filter(r => r.phone && r.apikey).length, email: s.ejs_service && s.ejs_template && s.ejs_key ? s.recipients.filter(r => r.email).length : 0 });
 
   const last = { p: 0, f: 0, h: 0 };
+  let sending = false;
   async function refresh(fingrid = true) {
     const out = { prices: await track('prices', fetchPrices), forecast: await track('forecast', fetchForecasts) };
     if (fingrid) await track('fingrid', fetchFingrid);
@@ -155,8 +190,12 @@
     if (t - last.f > 3600) { last.f = t; await track('forecast', fetchForecasts); await track('fingrid', fetchFingrid); changed = true; }
     if (t - last.h > 86400) { last.h = t; await track('history', () => backfill()); changed = true; }
     if (changed) { persist(); if (!document.querySelector('#main.hidden')) window.load?.(); }
-    const s = settings();
-    for (const m of [...dailyAlarm(s), ...extraAlarms(s)]) await notify(s, m);
+    if (sending) return;  // a slow send must not be started a second time by the next tick
+    sending = true;
+    try {
+      const s = settings();
+      for (const due of dueMessages(s)) recordSend(due, await notify(s, due.msg));
+    } finally { sending = false; }
   }
 
   function data(daysBack) {
@@ -164,7 +203,7 @@
     const fg = rows('wind_fg', start), fgEnd = fg.length ? fg.at(-1)[0] : 0;
     const wind = [...rows('wind_npf', start).filter(r => !fg.length || r[0] > fgEnd), ...fg].sort((a, b) => a[0] - b[0]);
     return { actual: rows('prices', start), forecast: rows('forecast', start), wind, wind_actual: rows('wind_actual', start),
-      settings: s, fingrid: !!s.fingrid_key, errors: Object.values(errors) };
+      settings: s, schedule: scheduleInfo(s), fingrid: !!s.fingrid_key, errors: Object.values(errors) };
   }
 
   window.LOCAL = {
@@ -196,8 +235,8 @@
           s.recipients = s.recipients.filter((r, i) => body.only.includes(i));
           if (!s.recipients.length) throw new Error('select at least one recipient');
         }  // example: daily message for the published prices from now on
-        const text = '✅ Test message from Electricity Finland. Example of the daily message:\n' + (dailyMessage(s, rows('prices', a - 3600), a, a + 86400) || '(no published prices yet)');
-        return notify(s, text, body.channel || 'all');
+        const text = 'TEST MESSAGE\nNo published prices yet.';
+        return notify(s, composeMessage(s, rows('prices', a - 3600), a, a + 86400, { test: true }) || { subject: '[TEST] Electricity prices', wa: text, text }, body.channel || 'all');
       }
       return { ok: true };
     },

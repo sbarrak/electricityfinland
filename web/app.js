@@ -11,6 +11,8 @@ const NAMES = { spot: 'spot', total: 'total cost' };
 let D = null, S = {}, chart = null, filled = false, loadedDays = 60, bucket = null, avgs = [], tickStep = 1, me = {};
 let mode = store('mode') === 'spot' ? 'spot' : 'total', vat = store('vat') !== '0', cmp = store('cmp') === '1', avgOn = store('avg') === '1';
 let tab = 'prices', view = null, yZoom = 1, yPos = 0.5, touched = 0, sel = null;  // sel: chart point picked for the breakdown
+let tipOn = store('tip') !== '0';  // the box with the price of the touched chart point
+const tipEvents = () => tipOn ? ['mousemove', 'mouseout', 'click', 'touchstart', 'touchmove'] : [];  // no events: the box never opens (taps and drags still work)
 
 // ---------------------------------------------------------------- settings form
 const FIELDS = {
@@ -19,9 +21,7 @@ const FIELDS = {
     ['tax', 'Electricity tax + supply fee'], ['other', 'Other per kWh'], ['vat', 'VAT %']],
   monthly: [['monthly_provider', 'Provider monthly fee €'], ['monthly_transfer', 'Transfer monthly fee €'],
     ['monthly_kwh', 'Monthly consumption kWh'], ['spread_monthly', 'Spread monthly fees into total c/kWh', 'cb']],
-  notif: [['summary_on', 'Start the daily 14:00 message with a price summary (average, min, max)', 'cb'],
-    ['extra_time_1', 'Extra send time 1 (empty = off)', 'time'], ['extra_time_2', 'Extra send time 2 (empty = off)', 'time'],
-    ['extra_time_3', 'Extra send time 3 (empty = off)', 'time']],
+  notif: [['summary_on', 'Start the message with a price summary (average, lowest, highest)', 'cb']],  // the 3 extra send times are in index.html
   smtp: LOCAL ? LOCAL.fields : [['smtp_host', 'Server', 'text'], ['smtp_port', 'Port', 1], ['smtp_security', 'Security', ['starttls', 'ssl', 'none']],
     ['smtp_user', 'Username', 'text'], ['smtp_pass', 'Password', 'password'], ['smtp_from', 'From address (optional)', 'email'],
     ['smtp_verify', 'Verify server certificate', 'cb']],
@@ -34,6 +34,7 @@ for (const [id, list] of Object.entries(FIELDS)) $('#' + id).innerHTML = list.ma
 if (LOCAL) {
   $('#smtpCard summary').innerHTML = 'Email <small>EmailJS</small>';
   $('#emailHint').innerHTML = LOCAL.emailHint;
+  $('#tzNote').textContent = 'your computer time';
   ['#account', '#logout', '#who'].forEach(s => $(s).classList.add('hidden'));
 }
 
@@ -86,6 +87,10 @@ for (const root of [$('#alarmbar'), $('#settings')]) ['input', 'change'].forEach
 $('#recips').addEventListener('click', e => {  // remove a recipient (a handler must not return false: that would block the tick boxes)
   if (e.target.classList.contains('del')) { e.target.closest('.recip').remove(); autosave(); }
 });
+$('#settings').addEventListener('click', e => {  // ✕ turns an extra send time off (a time box cannot be emptied by hand on every phone)
+  const b = e.target.closest('[data-clr]'); if (!b) return;
+  const el = $(`[data-k=${b.dataset.clr}]`); el.value = ''; el.dispatchEvent(new Event('input', { bubbles: true }));
+});
 $$('.test').forEach(b => b.onclick = async () => {
   const out = t => $$('.testOut').forEach(el => el.textContent = t);
   out('Sending…');
@@ -126,6 +131,24 @@ $('#nuAdd').onclick = async () => {
   } catch (err) { $('#nuErr').textContent = err.message; }
 };
 
+// what is scheduled, who gets it, and how the last scheduled message went (shown under the extra send times)
+function renderSchedule() {
+  const sc = D?.schedule, el = $('#schedInfo');
+  if (!sc || !el) return;
+  const n = (c, w) => `${c} ${w} recipient${c === 1 ? '' : 's'}`, lines = [], warn = [];
+  lines.push(`Scheduled messages at <b>${sc.times.join(' · ')}</b> go to <b>every</b> recipient in the list: ` +
+    `WhatsApp ${S.wa_on ? n(sc.wa, '') : 'is off'}, email ${S.email_on ? n(sc.email, '') : 'is off'}.`);
+  if (!S.wa_on && !S.email_on) warn.push('The WhatsApp alerts and Email alerts switches above the chart are both off, so no message is sent.');
+  if (S.wa_on && !sc.wa) warn.push('WhatsApp is on, but no recipient has both a phone number and a CallMeBot key.');
+  if (S.email_on && !sc.email) warn.push('Email is on, but no recipient has an email address' + (LOCAL ? ' / EmailJS is not set up.' : ' / the email server is not set up.'));
+  const l = sc.last;
+  if (l) {
+    const res = Object.entries(l.results || {}).map(([k, v]) => `${k}: ${v}`).join(' · ');
+    (l.ok ? lines : warn).push(`Last scheduled message (${l.time}), ${new Date(l.at * 1000).toLocaleString('fi-FI')}: ${l.ok ? 'sent' : 'not delivered to everyone'} — ${res}`);
+  }
+  el.innerHTML = lines.map(t => `<p class="hint">${t}</p>`).join('') + warn.map(t => `<p class="hint warn">⚠ ${esc(t)}</p>`).join('');
+}
+
 // message templates popup
 const dlg = $('#msgDialog');
 $('#phAlarm').textContent = TEMPLATE_FIELDS.alarm.map(f => `{${f}}`).join(' ');
@@ -136,7 +159,19 @@ function sampleFields(k) {
   const kind = k === 'msg_high' ? 'high' : 'low', t = Math.floor(Date.now() / 9e5) * 900 + 7200;
   return windowFields(S, kind, { start: t, end: t + 5400, ps: [[kind === 'high' ? S.high + 1.5 : S.low - 0.5, 5400]] });
 }
-const preview = () => $$('[data-m]', dlg).forEach(t => $(`[data-p=${t.dataset.m}]`, dlg).textContent = 'Example: ' + fillTemplate(t.value, sampleFields(t.dataset.m)));
+function fullExample() {  // the whole message for made-up prices that cross both limits, with the texts as typed in the window
+  const cost = Object.fromEntries(['vat', 'margin', 'transfer_day', 'transfer_night', 'tax', 'other', 'monthly_provider', 'monthly_transfer'].map(k => [k, 0]));
+  const o = { ...S, ...cost, spread_monthly: false, high_on: true, low_on: true, summary_on: true, ...Object.fromEntries($$('[data-m]', dlg).map(t => [t.dataset.m, t.value])) };
+  const d = new Date(); d.setHours(14, 0, 0, 0);
+  const a = d / 1000, mid = (o.high + o.low) / 2, span = Math.abs(o.high - o.low);
+  const rows = Array.from({ length: 50 }, (_, i) => { const t = a - 3600 + i * 3600, h = new Date(t * 1000).getHours();
+    return [t, h >= 17 && h <= 18 ? o.high + 3 : h >= 3 && h <= 4 ? o.low - 0.6 : mid + Math.sin(i) * span * 0.15]; });
+  return composeMessage(o, rows, a, a + 86400)?.text || '';
+}
+const preview = () => {
+  $$('[data-m]', dlg).forEach(t => $(`[data-p=${t.dataset.m}]`, dlg).textContent = 'Example: ' + fillTemplate(t.value, sampleFields(t.dataset.m)));
+  $('#msgFull').textContent = fullExample();
+};
 $$('.openMsg').forEach(b => b.onclick = () => {
   $$('[data-m]', dlg).forEach(t => t.value = S[t.dataset.m] || MSG_DEFAULTS[t.dataset.m]);
   $('#msgErr').textContent = ''; preview(); dlg.showModal();
@@ -228,6 +263,13 @@ const check = (id, cur, fn) => { $('#' + id).checked = cur; $('#' + id).onchange
 check('vat', vat, v => { vat = v; store('vat', v ? '1' : '0'); build(); });
 check('avg', avgOn, v => { avgOn = v; store('avg', v ? '1' : '0'); update(); });
 check('cmp', cmp, v => { cmp = v; store('cmp', v ? '1' : '0'); showTabs(); });
+check('tip', tipOn, v => {  // the box with the price of the touched point can cover most of the chart on a phone
+  tipOn = v; store('tip', v ? '1' : '0');
+  if (!chart) return;
+  chart.options.plugins.tooltip.events = tipEvents();
+  if (!v) { chart.setActiveElements([]); chart.tooltip.setActiveElements([], { x: 0, y: 0 }); }  // hide a box that is showing right now
+  chart.update('none');
+});
 function showTabs() {
   $('#tabs').classList.toggle('hidden', !cmp);
   if (!cmp && tab === 'compare') { tab = 'prices'; markTab(tab); build(); }
@@ -277,6 +319,7 @@ async function load(days = loadedDays) {
   try { D = await api('data?days_back=' + days); } catch (e) { if (e.message !== 'login required') flash('Cannot load data: ' + e.message); return; }
   loadedDays = Math.max(days, 60); S = D.settings;
   if (!filled) { fillSettings(); filled = true; }
+  renderSchedule();
   if (!view) view = defaultView();
   build();
 }
@@ -434,7 +477,7 @@ function build() {
       },
       plugins: {
         legend: { labels: { color: css('--fg'), boxWidth: 12, font: { size: small ? 10 : 12 } } },
-        tooltip: { filter: (it, i, all) => all.findIndex(o => o.datasetIndex === it.datasetIndex) === i, callbacks: {
+        tooltip: { events: tipEvents(), filter: (it, i, all) => all.findIndex(o => o.datasetIndex === it.datasetIndex) === i, callbacks: {
           title: it => it.length ? `${dayFmt(it[0].parsed.x)} ${hm(it[0].parsed.x)}` + (bucket > 900 ? `–${hm(it[0].parsed.x + bucket * 1000)}` : '') : '',
           label: c => `${c.dataset.label}: ${c.parsed.y.toFixed(c.dataset.kind === 'price' ? 2 : 0)}` } },
       },
