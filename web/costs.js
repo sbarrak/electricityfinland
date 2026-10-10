@@ -25,13 +25,15 @@ function priceValue(s, ts, spot, kind, vat) {
 
 // Message templates: {name} placeholders, unknown ones are left as written. Defaults as in app/main.py.
 const MSG_DEFAULTS = {
-  msg_high: '▲ Above {limit} c/kWh: {weekday} {date} {time}–{end} ({duration}), highest {price}',
-  msg_low: '▼ Below {limit} c/kWh: {weekday} {date} {time}–{end} ({duration}), lowest {price}',
+  msg_high: '⬆️ Above {limit} c/kWh: {weekday} {date} {time}–{end} ({duration}), highest {price}',
+  msg_low: '⬇️ Below {limit} c/kWh: {weekday} {date} {time}–{end} ({duration}), lowest {price}',
   msg_summary: 'Electricity prices {from} – {to}\nAverage {avg} · lowest {min} ({min_time}) · highest {max} ({max_time}) c/kWh, {basis}',
 };
 const OLD_MSGS = {  // earlier default texts: a saved copy of one of them is replaced by the new default
-  msg_high: ['🔴 High price {price} c/kWh · {weekday} {date} {time}–{end} ({duration}) · limit {limit}'],
-  msg_low: ['🟢 Low price {price} c/kWh · {weekday} {date} {time}–{end} ({duration}) · limit {limit}'],
+  msg_high: ['🔴 High price {price} c/kWh · {weekday} {date} {time}–{end} ({duration}) · limit {limit}',
+    '▲ Above {limit} c/kWh: {weekday} {date} {time}–{end} ({duration}), highest {price}'],
+  msg_low: ['🟢 Low price {price} c/kWh · {weekday} {date} {time}–{end} ({duration}) · limit {limit}',
+    '▼ Below {limit} c/kWh: {weekday} {date} {time}–{end} ({duration}), lowest {price}'],
   msg_summary: ['📅 Prices {from} – {to}: avg {avg}, min {min} at {min_time}, max {max} at {max_time} c/kWh ({basis})'],
 };
 const TEMPLATE_FIELDS = {
@@ -74,12 +76,14 @@ function hourlyPrices(s, rows, a, b) {
 }
 
 // The message for the prices a..b: a summary, one line for every period at or above the high limit / at or below the low
-// limit (also one that began before a), and the hourly prices with those hours marked. Returns null without prices.
+// limit (also one that began before a), a key with the limits, and the hourly prices with those hours marked by an arrow
+// and how far the price is past the limit. Returns null without prices.
 // Returns {subject, wa (WhatsApp, *bold*), text (plain)}. Mirrors compose() in app/main.py.
 function composeMessage(s, rows, a, b, { test = false, note = '' } = {}) {
   const hours = hourlyPrices(s, rows, a, b);
   if (!hours.length) return null;
-  const hit = { high: p => p >= s.high, low: p => p <= s.low }, MARK = { high: '▲', low: '▼' };
+  const hit = { high: p => p >= s.high, low: p => p <= s.low }, MARK = { high: '⬆️', low: '⬇️' };
+  const KEY = { high: 'above upper limit', low: 'below lower limit' };
   hours.forEach(h => h.flag = ['high', 'low'].find(k => s[k + '_on'] && hit[k](h.p)) || null);
   const spans = [];
   hours.forEach((h, i) => {
@@ -105,10 +109,14 @@ function composeMessage(s, rows, a, b, { test = false, note = '' } = {}) {
   }
   if (note) sections.push([['text', note]]);
   const list = [['heading', `Hourly prices, c/kWh (${alarmBasis(s)})`]];
+  if (spans.length) list.unshift(['key', ['high', 'low'].filter(k => s[k + '_on']).map(k => `${MARK[k]} ${KEY[k]} ${Number(s[k]).toFixed(2)}`).join(' · ')]);
   let day = null;
   for (const h of hours) {
     if (dayName(h.t) !== day) { day = dayName(h.t); list.push(['day', day]); }
-    list.push([h.flag ? 'row_' + h.flag : 'row', `${h.flag ? MARK[h.flag] + ' ' : ''}${hhmm(h.t)}  ${h.p.toFixed(2)}`]);
+    let row = `${hhmm(h.t)}  ${h.p.toFixed(2)}`;  // e.g. "21:00  32.22 ⬆️ +17.22": the mark and the distance past the limit
+    const d = h.flag && rnd(Math.abs(h.p - s[h.flag]), 2);
+    if (h.flag) row += ` ${MARK[h.flag]} ${!d ? '±' : h.flag === 'high' ? '+' : '-'}${d.toFixed(2)}`;
+    list.push([h.flag ? 'row_' + h.flag : 'row', row]);
   }
   sections.push(list);
   const bold = new Set(['title', 'alert_high', 'alert_low', 'row_high', 'row_low']);

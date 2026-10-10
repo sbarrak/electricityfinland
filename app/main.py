@@ -38,8 +38,8 @@ DEFAULTS = {
     "summary_on": True, "extra_time_1": "", "extra_time_2": "", "extra_time_3": "",  # extra send times "HH:MM", empty = off
     "wa_on": True, "email_on": True, "recipients": [], "alerts_v2": False,  # alerts_v2: one-time switch-on of limits/channels done
     # message templates, placeholders: see fill() / web/costs.js. {limit} is the limit, {price} the highest / lowest hourly price
-    "msg_high": "▲ Above {limit} c/kWh: {weekday} {date} {time}–{end} ({duration}), highest {price}",
-    "msg_low": "▼ Below {limit} c/kWh: {weekday} {date} {time}–{end} ({duration}), lowest {price}",
+    "msg_high": "⬆️ Above {limit} c/kWh: {weekday} {date} {time}–{end} ({duration}), highest {price}",
+    "msg_low": "⬇️ Below {limit} c/kWh: {weekday} {date} {time}–{end} ({duration}), lowest {price}",
     "msg_summary": "Electricity prices {from} – {to}\nAverage {avg} · lowest {min} ({min_time}) · highest {max} ({max_time}) c/kWh, {basis}",
     # email server (SMTP relay); SMTP_* env vars are used when a field is empty
     "smtp_host": env("host"), "smtp_port": int(env("port", "587") or 587),
@@ -48,8 +48,10 @@ DEFAULTS = {
 }
 SECRET_FIELDS = ("smtp_pass",)
 OLD_MSGS = {  # earlier default texts: a saved copy of one of them is replaced by the new default
-    "msg_high": ("🔴 High price {price} c/kWh · {weekday} {date} {time}–{end} ({duration}) · limit {limit}",),
-    "msg_low": ("🟢 Low price {price} c/kWh · {weekday} {date} {time}–{end} ({duration}) · limit {limit}",),
+    "msg_high": ("🔴 High price {price} c/kWh · {weekday} {date} {time}–{end} ({duration}) · limit {limit}",
+                 "▲ Above {limit} c/kWh: {weekday} {date} {time}–{end} ({duration}), highest {price}"),
+    "msg_low": ("🟢 Low price {price} c/kWh · {weekday} {date} {time}–{end} ({duration}) · limit {limit}",
+                "▼ Below {limit} c/kWh: {weekday} {date} {time}–{end} ({duration}), lowest {price}"),
     "msg_summary": ("📅 Prices {from} – {to}: avg {avg}, min {min} at {min_time}, max {max} at {max_time} c/kWh ({basis})",),
 }
 EXTRA_TIMES = ("extra_time_1", "extra_time_2", "extra_time_3")
@@ -392,14 +394,16 @@ def window_fields(s, kind, w):
             "duration": duration(w["end"] - w["start"]), "limit": f"{s[kind]:g}", "basis": basis(s)}
 
 
-MARK = {"high": "▲", "low": "▼"}  # plain geometric marks (no emoji) so highlighted rows also show in plain text
+MARK = {"high": "⬆️", "low": "⬇️"}  # after the price, so the times and prices line up on every row
+KEY = {"high": "above upper limit", "low": "below lower limit"}
 BOLD = {"title", "alert_high", "alert_low", "row_high", "row_low"}
 
 
 def compose(s, rows, a, b, test=False, note=""):
     """The message for the prices a..b (seconds), or None without any price in that period.
     Always: a summary and the hourly prices. A high / low limit that is switched on and crossed adds one line for every
-    period at or above / below it (also one that began before a) and highlights those hours in the list.
+    period at or above / below it (also one that began before a), a key with the limits, and highlights those hours in the list
+    with an arrow and how far the price is past the limit.
     Returns {"subject", "wa" (WhatsApp, *bold*), "text" (plain email), "html", "alert"}. Mirrors composeMessage() in web/costs.js."""
     hours = hourly(s, rows, a, b)
     if not hours:
@@ -436,11 +440,17 @@ def compose(s, rows, a, b, test=False, note=""):
     if note:
         sections.append([("text", note)])
     rowsec, day = [("heading", f"Hourly prices, c/kWh ({basis(s)})")], None
+    if spans:
+        rowsec.insert(0, ("key", " · ".join(f"{MARK[k]} {KEY[k]} {s[k]:.2f}" for k in ("high", "low") if s[k + "_on"])))
     for h in hours:
         if dayname(h["t"]) != day:
             day = dayname(h["t"])
             rowsec.append(("day", day))
-        rowsec.append(("row_" + h["flag"] if h["flag"] else "row", f"{MARK[h['flag']] + ' ' if h['flag'] else ''}{fmt(h['t'])}  {h['p']:.2f}"))
+        row = f"{fmt(h['t'])}  {h['p']:.2f}"
+        if h["flag"]:  # e.g. "21:00  32.22 ⬆️ +17.22": the mark and the distance past the limit
+            d = rnd(abs(h["p"] - s[h["flag"]]), 2)
+            row += f" {MARK[h['flag']]} {'±' if not d else '+' if h['flag'] == 'high' else '-'}{d:.2f}"
+        rowsec.append(("row_" + h["flag"] if h["flag"] else "row", row))
     sections.append(rowsec)
     return {"subject": ("[TEST] " if test else "") + f"Electricity prices {dayname(a)}" + (" · price alert" if spans else ""),
             "wa": "\n\n".join("\n".join(f"*{t}*" if k in BOLD and t else t for k, t in sec) for sec in sections),
@@ -450,7 +460,7 @@ def compose(s, rows, a, b, test=False, note=""):
 
 def render_html(sections):
     hi, lo = "background:#fee2e2;color:#991b1b", "background:#dcfce7;color:#166534"
-    style = {"title": "font-size:16px;font-weight:700", "text": "", "heading": "font-weight:700", "day": "color:#64748b;margin-top:8px",
+    style = {"title": "font-size:16px;font-weight:700", "text": "", "key": "color:#475569;margin-bottom:4px", "heading": "font-weight:700", "day": "color:#64748b;margin-top:8px",
              "row": "padding:1px 6px;white-space:pre",
              "alert_high": f"margin:4px 0;padding:6px 10px;font-weight:700;border-left:4px solid #dc2626;{hi}",
              "alert_low": f"margin:4px 0;padding:6px 10px;font-weight:700;border-left:4px solid #16a34a;{lo}",
