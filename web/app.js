@@ -1,7 +1,16 @@
 const $ = (s, el = document) => el.querySelector(s);
 const fatal = msg => { const f = document.getElementById('fatal'); f.textContent = '⚠ ' + msg; f.classList.remove('hidden'); };
-addEventListener('error', e => fatal(`${e.message} (${(e.filename || '').split('/').pop()}:${e.lineno}). Try reloading the page.`));
-addEventListener('unhandledrejection', e => fatal(String(e.reason?.message || e.reason)));
+// pull-to-refresh / leaving the page aborts requests and tears down scripts: ignore errors from then on
+let leaving = false;
+addEventListener('pagehide', () => leaving = true);
+addEventListener('beforeunload', () => leaving = true);
+addEventListener('pageshow', () => leaving = false);  // back from the browser's page cache
+addEventListener('error', e => {
+  // "Script error." without a file is a muted cross-origin error (CDN script, browser extension): no details, not ours
+  if (leaving || (!e.filename && !e.lineno && /^script error\.?$/i.test(e.message || ''))) return;
+  fatal(`${e.message} (${(e.filename || '').split('/').pop()}:${e.lineno}). Try reloading the page.`);
+});
+addEventListener('unhandledrejection', e => { if (!leaving) fatal(String(e.reason?.message || e.reason)); });
 const $$ = (s, el = document) => [...el.querySelectorAll(s)];
 const store = (k, v) => { try { return v === undefined ? localStorage.getItem(k) : localStorage.setItem(k, v); } catch { return null; } };
 const LOCAL = window.LOCAL;  // set by local.js when opened as a file
