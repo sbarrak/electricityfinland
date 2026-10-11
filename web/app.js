@@ -48,12 +48,12 @@ if (LOCAL) {
 }
 
 const recipRow = (r = {}) => `<div class="recip">
-  <label class="pick" title="Select for Send test"><input type="checkbox" data-t aria-label="Select"></label>
-  <input data-r="name" placeholder="Name" value="${esc(r.name)}">
-  <input data-r="phone" placeholder="WhatsApp +358…" inputmode="tel" value="${esc(r.phone)}">
-  <input data-r="apikey" placeholder="CallMeBot API key" value="${esc(r.apikey)}">
-  <input data-r="email" type="email" placeholder="Email" value="${esc(r.email)}">
-  <button type="button" class="ghost del" title="Remove">✕</button></div>`;
+  <label class="pick" title="Select for Send test"><input type="checkbox" data-t aria-label="Select for Send test"></label>
+  <label class="f name"><span>Name</span><input data-r="name" placeholder="Name" value="${esc(r.name)}"></label>
+  <label class="f phone"><span>WhatsApp phone</span><input data-r="phone" placeholder="+358…" inputmode="tel" autocomplete="tel" value="${esc(r.phone)}"></label>
+  <label class="f key"><span>CallMeBot API key</span><input data-r="apikey" placeholder="API key" autocomplete="off" value="${esc(r.apikey)}"></label>
+  <label class="f email"><span>Email</span><input data-r="email" type="email" placeholder="name@example.com" autocomplete="email" value="${esc(r.email)}"></label>
+  <button type="button" class="ghost del" title="Remove" aria-label="Remove recipient">✕</button></div>`;
 $('#addRecip').onclick = () => $('#recips').insertAdjacentHTML('beforeend', recipRow());
 
 function fillSettings() {
