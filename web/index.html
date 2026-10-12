@@ -7,7 +7,7 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="theme-color" content="#0f172a">
 <title>Electricity Finland</title>
-<link rel="stylesheet" href="style.css?v=11">
+<link rel="stylesheet" href="style.css?v=12">
 </head>
 <body>
 <div id="fatal" class="fatal hidden"></div>
@@ -50,7 +50,7 @@
 
   <section class="card chartcard">
     <div class="tabs" id="tabs">
-      <button data-v="prices">Prices</button><button data-v="compare" id="tabCompare">Estimate vs actual</button>
+      <button data-v="prices">Prices</button><button data-v="compare" id="tabCompare">Estimate vs actual</button><button data-v="grid" id="tabGrid">Grid View</button>
     </div>
     <div class="toolbar">
       <div class="seg" id="mode"><button data-v="spot">Spot</button><button data-v="total">Total cost</button></div>
@@ -76,10 +76,22 @@
       <label class="date">From <input type="date" id="from"></label>
       <label class="date">To <input type="date" id="to"></label>
       <div class="zoom right">
-        <button data-z="x-" title="Zoom out (time)">−</button><span>⇔</span><button data-z="x+" title="Zoom in (time)">+</button>
-        <button data-z="y-" title="Zoom out (price)">−</button><span>⇕</span><button data-z="y+" title="Zoom in (price)">+</button>
+        <button data-z="x-" title="Zoom out (time; in the grid: longer rows)">−</button><span>⇔</span><span id="gres" class="gres gridonly"></span><button data-z="x+" title="Zoom in (time; in the grid: shorter rows)">+</button>
+        <button data-z="y-" class="yz" title="Zoom out (price)">−</button><span class="yz">⇕</span><button data-z="y+" class="yz" title="Zoom in (price)">+</button>
         <button data-z="reset" class="ghost">Reset</button>
       </div>
+    </div>
+    <div class="toolbar gridbar gridonly" id="gridbar">
+      <button type="button" class="ghost" id="gCsv" title="The selected cells, or the whole period when nothing is selected">⬇ Export CSV</button>
+      <button type="button" class="ghost" id="gXlsx" title="The selected cells, or the whole period when nothing is selected">⬇ Export Excel</button>
+      <span class="gsep"></span>
+      <button type="button" class="ghost" id="gCopy" title="Copy the selected cells (also Ctrl+C / ⌘C)" disabled>⧉ Copy</button>
+      <button type="button" class="ghost" id="gClear" title="Deselect everything (also Esc)" disabled>✕ Deselect</button>
+      <span id="gnote" class="hint"></span>
+    </div>
+    <div id="gridwrap" class="gridwrap gridonly" tabindex="0" aria-label="Prices table">
+      <table id="grid"><colgroup><col class="cn"><col class="cd"><col class="cp"><col class="ct"><col class="cw"><col class="cs"></colgroup>
+        <thead></thead><tbody></tbody><tfoot></tfoot></table>
     </div>
     <div class="plot">
       <div class="chartwrap"><canvas id="chart"></canvas></div>
@@ -172,6 +184,7 @@
 <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns@3.0.0/dist/chartjs-adapter-date-fns.bundle.min.js" crossorigin="anonymous"></script>
 <script src="costs.js?v=13"></script>
 <script src="local.js?v=12"></script>
-<script src="app.js?v=16"></script>
+<script src="grid.js?v=1"></script>
+<script src="app.js?v=17"></script>
 </body>
 </html>
