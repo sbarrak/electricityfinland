@@ -94,11 +94,27 @@
     TABLES.forEach(t => { if (t !== 'prices') for (const k in db[t]) if (+k < cutoff) delete db[t][k]; put(t, db[t]); });
   }
 
-  const WA_CHUNK = 1500;  // CallMeBot takes the text in the URL: longer messages are sent as several parts
+  // CallMeBot takes the text in the URL and cuts long texts: at most WA_CHUNK URL-encoded characters per part, split preferably
+  // between sections and where the hourly list goes on with a new day or the estimates. Mirrors wa_parts() in app/main.py.
+  const WA_CHUNK = 700, WA_DAY = /^\w{3} \d\d\.\d\d\.$/;
+  const waLen = t => encodeURIComponent(t).replace(/[!'()*]/g, c => '%' + c.charCodeAt(0).toString(16).toUpperCase()).length;
+  const trimNl = t => t.replace(/^\n+|\n+$/g, '');
   const waParts = text => {
-    const parts = []; let cur = '';
-    for (const line of text.split('\n')) { if (cur && cur.length + line.length + 1 > WA_CHUNK) { parts.push(cur.trimEnd()); cur = ''; } cur += line + '\n'; }
-    return [...parts, cur.trimEnd()];
+    const blocks = []; let cur = [];
+    for (const line of text.split('\n')) {
+      const afterRow = cur.length && /^\*?\d\d:\d\d /.test(cur.at(-1));
+      if (cur.length && (!line || (afterRow && (WA_DAY.test(line) || line.startsWith(EST_HEADING))))) { blocks.push(cur.join('\n')); cur = []; }
+      cur.push(line);  // a block after a blank line starts with '', so joining the blocks keeps the blank line
+    }
+    blocks.push(cur.join('\n'));
+    const parts = []; let part = '';
+    for (const block of blocks) for (const line of waLen(block) <= WA_CHUNK ? [block] : block.split('\n')) {
+      let joined = part + (part ? '\n' : '') + line;
+      if (part && waLen(trimNl(joined)) > WA_CHUNK) { parts.push(trimNl(part)); joined = line; }
+      part = joined;
+    }
+    const out = [...parts, trimNl(part)].filter(Boolean);
+    return out.length ? out : [''];
   };
   const sentOk = v => String(v).startsWith('sent');
   async function notify(s, m, force = null) {  // m: {subject, wa, text}. force: null = scheduled message, 'all' | 'whatsapp' | 'email' = test
@@ -133,7 +149,17 @@
   }
 
   // ---- when messages are sent. Mirrors due_messages() in app/main.py: the daily 14:00 message plus up to 3 extra times, each with
-  // the prices from that time to the same time tomorrow (before 14:00 tomorrow is not fixed yet: until midnight).
+  // the prices from that time to the same time tomorrow, that hour included; hours not published yet are forecast estimates.
+  function periodMessage(s, a, b, list = rows('prices', a - 3600), test = false) {  // mirrors period_message() in app/main.py
+    const pub = list.length ? Math.min(b, list.at(-1)[0] + 900) : a;
+    let est = null, note = '';
+    if (pub < b) {
+      est = rows('forecast', pub - 3600);
+      note = est.some(([t]) => t > pub - 3600 && t < b) ? `Prices from ${daystamp(pub)} are not published yet: the hours from then on are estimates (forecast).`
+        : `Prices after ${daystamp(pub)} are not published yet.`;
+    }
+    return composeMessage(s, list, a, pub, { test, note, est, estEnd: b });
+  }
   const SEND_HOUR = 14, DAILY_GRACE = 10 * 3600, EXTRA_GRACE = 3 * 3600, PARTIAL_AFTER = 90 * 60, RETRY_AFTER = 300, MAX_TRIES = 4;
   const TIME_RE = /^([01]\d|2[0-3]):[0-5]\d$/;
   const isoDay = d => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
@@ -155,13 +181,14 @@
       const tr = get('tries_' + slot, {});
       if (tr.key === key && (tr.n >= MAX_TRIES || now() - tr.at < RETRY_AFTER)) continue;
       const a = start / 1000, y = start.getFullYear(), mo = start.getMonth(), d = start.getDate();
-      let b = (start.getHours() >= SEND_HOUR ? new Date(y, mo, d + 1, start.getHours(), start.getMinutes()) : new Date(y, mo, d + 1)) / 1000, note = '';
+      const b = new Date(y, mo, d + 1, start.getHours() + 1, start.getMinutes()) / 1000;  // until the same time tomorrow, that hour included
+      // published by now: today until midnight; from 14:00 also tomorrow (Nord Pool publishes it around 13:45)
+      const need = Math.min(b, new Date(y, mo, d + (start.getHours() < SEND_HOUR ? 1 : 2)) / 1000);
       const list = rows('prices', a - 3600);
-      if (!list.length || list.at(-1)[0] < b - 3600) {  // the end of the period is not published yet: wait for it
+      if (!list.length || list.at(-1)[0] < need - 3600) {  // what should be published is not yet: wait for it
         if (late < PARTIAL_AFTER || !list.length || list.at(-1)[0] < a) continue;
-        b = list.at(-1)[0] + 900; note = `Prices after ${daystamp(b)} are not published yet.`;
       }
-      const msg = composeMessage(s, list, a, b, { note });
+      const msg = periodMessage(s, a, b, list);
       if (msg) out.push({ slot, key, time: t, msg });
     }
     return out;
@@ -236,7 +263,7 @@
           if (!s.recipients.length) throw new Error('select at least one recipient');
         }  // example: daily message for the published prices from now on
         const text = 'TEST MESSAGE\nNo published prices yet.';
-        return notify(s, composeMessage(s, rows('prices', a - 3600), a, a + 86400, { test: true }) || { subject: '[TEST] Electricity prices', wa: text, text }, body.channel || 'all');
+        return notify(s, periodMessage(s, a, a + 90000, undefined, true) || { subject: '[TEST] Electricity prices', wa: text, text }, body.channel || 'all');
       }
       return { ok: true };
     },

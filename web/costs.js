@@ -77,9 +77,11 @@ function hourlyPrices(s, rows, a, b) {
 
 // The message for the prices a..b: a summary, one line for every period at or above the high limit / at or below the low
 // limit (also one that began before a), a key with the limits, and the hourly prices with those hours marked by an arrow
-// and how far the price is past the limit. Returns null without prices.
+// and how far the price is past the limit. Returns null without prices. est: forecast rows, listed as estimates for
+// b..estEnd after the hourly prices (the summary and the limits use only the published prices a..b).
 // Returns {subject, wa (WhatsApp, *bold*), text (plain)}. Mirrors compose() in app/main.py.
-function composeMessage(s, rows, a, b, { test = false, note = '' } = {}) {
+const EST_HEADING = 'Estimates (forecast, not published yet)';
+function composeMessage(s, rows, a, b, { test = false, note = '', est = null, estEnd = null } = {}) {
   const hours = hourlyPrices(s, rows, a, b);
   if (!hours.length) return null;
   const hit = { high: p => p >= s.high, low: p => p <= s.low }, MARK = { high: '⬆️', low: '⬇️' };
@@ -117,6 +119,12 @@ function composeMessage(s, rows, a, b, { test = false, note = '' } = {}) {
     const d = h.flag && rnd(Math.abs(h.p - s[h.flag]), 2);
     if (h.flag) row += ` ${MARK[h.flag]} ${!d ? '±' : h.flag === 'high' ? '+' : '-'}${d.toFixed(2)}`;
     list.push([h.flag ? 'row_' + h.flag : 'row', row]);
+  }
+  const estHours = est && estEnd > b ? hourlyPrices(s, est, b, estEnd) : [];
+  if (estHours.length) list.push(['heading', EST_HEADING]);
+  for (const h of estHours) {
+    if (dayName(h.t) !== day) { day = dayName(h.t); list.push(['day', day]); }
+    list.push(['row', `${hhmm(h.t)}  ~${h.p.toFixed(2)}`]);
   }
   sections.push(list);
   const bold = new Set(['title', 'alert_high', 'alert_low', 'row_high', 'row_low']);

@@ -175,7 +175,7 @@ function fullExample() {  // the whole message for made-up prices that cross bot
   const a = d / 1000, mid = (o.high + o.low) / 2, span = Math.abs(o.high - o.low);
   const rows = Array.from({ length: 50 }, (_, i) => { const t = a - 3600 + i * 3600, h = new Date(t * 1000).getHours();
     return [t, h >= 17 && h <= 18 ? o.high + 3 : h >= 3 && h <= 4 ? o.low - 0.6 : mid + Math.sin(i) * span * 0.15]; });
-  return composeMessage(o, rows, a, a + 86400)?.text || '';
+  return composeMessage(o, rows, a, a + 90000)?.text || '';
 }
 const preview = () => {
   $$('[data-m]', dlg).forEach(t => $(`[data-p=${t.dataset.m}]`, dlg).textContent = 'Example: ' + fillTemplate(t.value, sampleFields(t.dataset.m)));

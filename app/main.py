@@ -1,5 +1,5 @@
 """Electricity Finland: spot price + wind monitor with WhatsApp/email alarms."""
-import asyncio, hashlib, hmac, html, json, logging, math, os, re, smtplib, sqlite3, ssl, threading, time
+import asyncio, hashlib, hmac, html, json, logging, math, os, re, smtplib, sqlite3, ssl, threading, time, urllib.parse
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
 from email.message import EmailMessage
@@ -264,17 +264,38 @@ def send_mail(s, to, subject, text, html=None):
         smtp.send_message(msg)
 
 
-WA_CHUNK = 1500  # CallMeBot takes the text in the URL: longer messages are sent as several parts
+WA_CHUNK = 700  # CallMeBot takes the text in the URL and cuts long texts: at most this many URL-encoded characters per part
+
+
+WA_DAY = re.compile(r"\w{3} \d\d\.\d\d\.")  # a day heading of the hourly list, like "Mon 12.10."
+EST_HEADING = "Estimates (forecast, not published yet)"
+
+
+def wa_len(text):
+    return len(urllib.parse.quote(text, safe=""))
 
 
 def wa_parts(text):
-    parts, cur = [], ""
+    """Split a WhatsApp text into parts of at most WA_CHUNK URL-encoded characters, preferably between sections and where
+    the hourly list goes on with a new day or the estimates (a heading stays with its rows), otherwise between lines.
+    Mirrors waParts() in web/local.js."""
+    blocks, cur = [], []
     for line in text.split("\n"):
-        if cur and len(cur) + len(line) + 1 > WA_CHUNK:
-            parts.append(cur.rstrip())
-            cur = ""
-        cur += line + "\n"
-    return parts + [cur.rstrip()]
+        after_row = cur and re.match(r"\*?\d\d:\d\d ", cur[-1])
+        if cur and (not line or after_row and (WA_DAY.fullmatch(line) or line.startswith(EST_HEADING))):
+            blocks.append("\n".join(cur))
+            cur = []
+        cur.append(line)  # a block after a blank line starts with "", so joining the blocks keeps the blank line
+    blocks.append("\n".join(cur))
+    parts, cur = [], ""
+    for block in blocks:
+        for line in ([block] if wa_len(block) <= WA_CHUNK else block.split("\n")):
+            joined = cur + ("\n" if cur else "") + line
+            if cur and wa_len(joined.strip("\n")) > WA_CHUNK:
+                parts.append(cur.strip("\n"))
+                joined = line
+            cur = joined
+    return [p for p in parts + [cur.strip("\n")] if p] or [""]
 
 
 def sent_ok(v):
@@ -399,8 +420,9 @@ KEY = {"high": "above upper limit", "low": "below lower limit"}
 BOLD = {"title", "alert_high", "alert_low", "row_high", "row_low"}
 
 
-def compose(s, rows, a, b, test=False, note=""):
-    """The message for the prices a..b (seconds), or None without any price in that period.
+def compose(s, rows, a, b, test=False, note="", est=None, est_end=None):
+    """The message for the prices a..b (seconds), or None without any price in that period. est: forecast rows, listed as
+    estimates for b..est_end after the hourly prices (the summary and the limits use only the published prices a..b).
     Always: a summary and the hourly prices. A high / low limit that is switched on and crossed adds one line for every
     period at or above / below it (also one that began before a), a key with the limits, and highlights those hours in the list
     with an arrow and how far the price is past the limit.
@@ -451,11 +473,33 @@ def compose(s, rows, a, b, test=False, note=""):
             d = rnd(abs(h["p"] - s[h["flag"]]), 2)
             row += f" {MARK[h['flag']]} {'±' if not d else '+' if h['flag'] == 'high' else '-'}{d:.2f}"
         rowsec.append(("row_" + h["flag"] if h["flag"] else "row", row))
+    est_hours = hourly(s, est, b, est_end) if est and est_end and est_end > b else []
+    if est_hours:
+        rowsec.append(("heading", EST_HEADING))
+        for h in est_hours:
+            if dayname(h["t"]) != day:
+                day = dayname(h["t"])
+                rowsec.append(("day", day))
+            rowsec.append(("row", f"{fmt(h['t'])}  ~{h['p']:.2f}"))
     sections.append(rowsec)
     return {"subject": ("[TEST] " if test else "") + f"Electricity prices {dayname(a)}" + (" · price alert" if spans else ""),
             "wa": "\n\n".join("\n".join(f"*{t}*" if k in BOLD and t else t for k, t in sec) for sec in sections),
             "text": "\n\n".join("\n".join(t for _, t in sec) for sec in sections),
             "html": render_html(sections), "alert": bool(spans)}
+
+
+def period_message(s, a, b, rows=None, test=False):
+    """compose() for a..b: the published prices, and forecast estimates for the hours that are not published yet."""
+    if rows is None:
+        rows = db.execute("SELECT ts, spot FROM prices WHERE ts>=? ORDER BY ts", (a - 3600,)).fetchall()
+    pub, est, note = min(b, int(rows[-1][0] + 900)) if rows else a, None, ""
+    if pub < b:
+        est = db.execute("SELECT ts, spot FROM forecast WHERE ts>=? ORDER BY ts", (pub - 3600,)).fetchall()
+        if any(pub - 3600 < t < b for t, _ in est):
+            note = f"Prices from {daystamp(pub)} are not published yet: the hours from then on are estimates (forecast)."
+        else:
+            note = f"Prices after {daystamp(pub)} are not published yet."
+    return compose(s, rows, a, pub, test=test, note=note, est=est, est_end=b)
 
 
 def render_html(sections):
@@ -495,8 +539,8 @@ def sent_key(uid, slot):
 
 def due_messages(s, uid):
     """Messages whose time has come and that nobody has received yet: [{"slot", "key", "msg"}].
-    The prices are the fixed ones from the send time to the same time the next day; when that time is before 14:00 the next
-    day is not fixed yet, so the message ends at midnight. The same message for every recipient, at every time."""
+    The prices from the send time to the same time the next day, that hour included (14:00 -> 14:00 tomorrow). Hours that
+    are not published yet (the next day before 14:00) are forecast estimates. The same message for every recipient, at every time."""
     now, out = datetime.now(TZ), []
     for slot, t in schedule_times(s):
         for day in (now.date(), now.date() - timedelta(days=1)):  # yesterday too: the grace period may reach past midnight
@@ -509,15 +553,15 @@ def due_messages(s, uid):
             if tr.get("key") == key and (tr["n"] >= MAX_TRIES or time.time() - tr["at"] < RETRY_AFTER):
                 continue
             a = int(start.timestamp())
-            end = start + timedelta(days=1) if start.hour >= SEND_HOUR else datetime.combine(day + timedelta(days=1), datetime.min.time(), TZ)
-            b = int(end.timestamp())
+            b = int((start + timedelta(days=1, hours=1)).timestamp())  # until the same time tomorrow, that hour included
+            # published by now: today until midnight; from 14:00 also tomorrow (Nord Pool publishes it around 13:45)
+            known = datetime.combine(day + timedelta(days=1 if start.hour < SEND_HOUR else 2), datetime.min.time(), TZ)
+            need = min(b, int(known.timestamp()))
             rows = db.execute("SELECT ts, spot FROM prices WHERE ts>=? ORDER BY ts", (a - 3600,)).fetchall()
-            note = ""
-            if not rows or rows[-1][0] < b - 3600:  # the end of the period is not published yet: wait for it
+            if not rows or rows[-1][0] < need - 3600:  # what should be published is not yet: wait for it
                 if late < PARTIAL_AFTER or not rows or rows[-1][0] < a:
                     continue
-                b, note = int(rows[-1][0] + 900), f"Prices after {daystamp(rows[-1][0] + 900)} are not published yet."
-            msg = compose(s, rows, a, b, note=note)
+            msg = period_message(s, a, b, rows)
             if msg:
                 out.append({"slot": slot, "key": key, "time": t, "msg": msg})
     return out
@@ -849,8 +893,7 @@ async def test_notify(body: dict | None = None, u: dict = Depends(user)):
             if not s["recipients"]:
                 raise HTTPException(400, "select at least one recipient")
         a = int(time.time() // 900 * 900)  # example: the scheduled message for the published prices from now on
-        rows = db.execute("SELECT ts, spot FROM prices WHERE ts>=? ORDER BY ts", (a - 3600,)).fetchall()
-        msg = compose(s, rows, a, a + 86400, test=True) or {
+        msg = period_message(s, a, a + 90000, test=True) or {
             "subject": "[TEST] Electricity prices", "wa": "TEST MESSAGE\nNo published prices yet.", "text": "TEST MESSAGE\nNo published prices yet.", "html": None}
         return await notify(c, s, msg, force=channel)
 
