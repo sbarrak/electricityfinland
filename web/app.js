@@ -311,10 +311,11 @@ $('#preset').onchange = e => {
 $$('[data-z]').forEach(b => b.onclick = () => {
   const z = b.dataset.z;
   touched = 0;  // stop a still-running smooth scroll from moving the new view
+  if (tab === 'grid' && z !== 'reset') return GridView.zoom(z === 'x+' ? -1 : 1);  // the grid: finer / coarser rows (15 min … 1 year)
   if (z === 'x+') zoomX(0.5); else if (z === 'x-') zoomX(2);
   else if (z === 'y+') { yZoom = Math.min(20, yZoom * 1.5); update(); }
   else if (z === 'y-') { yZoom = Math.max(1, yZoom / 1.5); if (yZoom < 1.01) yZoom = 1; update(); }
-  else { yZoom = 1; yPos = 0.5; $('#preset').value = 'default'; const d = defaultView(); setView(d.min, d.max); }
+  else { yZoom = 1; yPos = 0.5; if (tab === 'grid') GridView.zoom(-99); $('#preset').value = 'default'; const d = defaultView(); setView(d.min, d.max); }
 });
 
 // ---------------------------------------------------------------- data and chart
@@ -459,6 +460,14 @@ const overlay = {
 
 function build() {
   if (!D) return;
+  $('.chartcard').classList.toggle('gridmode', tab === 'grid');
+  if (tab === 'grid') {  // the table instead of the chart (grid.js)
+    chart?.destroy(); chart = null;
+    renderCards(); renderBreakdown();
+    $('#legend').textContent = '· red ▲ = at or above your high limit, green ▼ = at or below your low limit (on the Spot or Total cost column picked above, underlined) · green = published future price (fixed) · orange = estimate (not fixed) · blue = wind power MW (actual when there is one, otherwise the forecast)';
+    setView(view.min, view.max);
+    return status();
+  }
   if (typeof Chart === 'undefined') { renderCards(); status(); return fatal('The chart library could not be loaded. Check the internet connection and reload.'); }
   chart?.destroy();
   renderCards(); renderBreakdown();
@@ -519,6 +528,7 @@ function averages() {  // time-weighted averages of the visible past, fixed-futu
 function visible(rows) { const a = view.min / 1000, b = view.max / 1000; return rows.filter(r => r[0] >= a && r[0] < b); }
 
 function update() {
+  if (tab === 'grid' && view) { GridView.render(); $('#from').value = isoDate(view.min); $('#to').value = isoDate(view.max - 1); return; }
   if (!chart || !view) return;
   const W = chart.chartArea?.width || 600, span = view.max - view.min;
   const b = BUCKETS.find(x => span / 1000 / x <= W / 2) || 86400;
@@ -673,6 +683,7 @@ function status() {
     ` · Fingrid ${D.fingrid ? 'on' : 'off'}` + (D.errors?.length ? ' · ⚠ ' + D.errors.join(' · ') : '');
 }
 
+GridView.init();
 matchMedia('(prefers-color-scheme: dark)').addEventListener('change', build);
 let rz; addEventListener('resize', () => { clearTimeout(rz); rz = setTimeout(() => { bucket = null; update(); }, 250); });
 document.addEventListener('visibilitychange', () => !document.hidden && $('#main:not(.hidden)') && load());

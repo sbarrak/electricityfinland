@@ -168,3 +168,48 @@ grid-template-areas:"pick name phone key email del"}
   grid-template-areas:"pick name name del" "phone phone key key" "email email email email"}}
 @container (max-width:480px){.recip{grid-template-columns:auto minmax(0,1fr) auto;
   grid-template-areas:"pick name del" "phone phone phone" "key key key" "email email email"}}
+/* v6: Grid View tab (grid.js): a table of the period instead of the chart, about 10 rows in view, both scroll bars */
+:root{--sel:#dbe7fd;--sel-head:#c7d8fb}
+@media (prefers-color-scheme:dark){:root{--sel:#1e3a6e;--sel-head:#26467f}}
+.chartcard.gridmode .plot,.chartcard.gridmode .hscroll,.chartcard.gridmode .chartopts,.chartcard.gridmode .yz{display:none}
+.chartcard:not(.gridmode) .gridonly{display:none}
+.zoom .gres{min-width:4.5em;text-align:center;color:var(--fg);font-weight:600;font-variant-numeric:tabular-nums;margin-right:0}
+.gridbar button{min-height:36px;padding:4px 12px}
+.gridbar .gsep{width:1px;height:24px;background:var(--line)}
+.gridbar #gnote{flex:1 1 240px}
+button:disabled{opacity:.45;cursor:default}
+.gridwrap{overflow:scroll;height:420px;border:1px solid var(--line);border-radius:10px;background:var(--card);outline:none;overscroll-behavior:contain;
+  scrollbar-color:var(--line) transparent}
+.gridwrap::-webkit-scrollbar{width:12px;height:12px}
+.gridwrap::-webkit-scrollbar-thumb{background:var(--line);border-radius:6px}
+.gridwrap:focus-visible{box-shadow:0 0 0 2px var(--accent)}
+#grid{border-collapse:separate;border-spacing:0;width:100%;min-width:840px;table-layout:fixed;font-variant-numeric:tabular-nums;user-select:none;-webkit-user-select:none}
+#grid col.cn{width:52px}#grid col.cd{width:220px}#grid col.cp{width:150px}#grid col.ct{width:190px}#grid col.cw{width:100px}#grid col.cs{width:130px}
+#grid th,#grid td{height:32px;padding:0 10px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;text-align:right;
+  border-bottom:1px solid var(--grid);background:var(--card);cursor:cell}
+#grid thead th{position:sticky;top:0;z-index:2;height:38px;font-size:.8em;font-weight:600;color:var(--muted);border-bottom:1px solid var(--line);cursor:pointer}
+#grid thead th.lim{color:var(--fg);box-shadow:inset 0 -2px 0 var(--accent)}
+#grid .rn{position:sticky;left:0;z-index:1;text-align:center;color:var(--muted);font-size:.75em;border-right:1px solid var(--grid);cursor:pointer}
+#grid [data-c="0"],#grid [data-f]{position:sticky;left:52px;z-index:1;text-align:left;border-right:1px solid var(--grid)}
+#grid [data-c="4"]{text-align:left}
+#grid thead .rn,#grid thead [data-c="0"]{z-index:3}
+#grid tfoot td{position:sticky;z-index:2;font-weight:600;border-top:1px solid var(--line);border-bottom:0;cursor:default}
+#grid tfoot .rn,#grid tfoot [data-f]{z-index:3}
+#grid .pad td{height:auto;padding:0;border:0}
+#grid .empty td{text-align:center;color:var(--muted);cursor:default}
+#grid td.sel{background:var(--sel)}
+#grid th.on,#grid td.rn.on{background:var(--sel-head);color:var(--fg)}
+#grid .hi{color:var(--hi);font-weight:700}
+#grid .lo{color:var(--lo);font-weight:700}
+#grid .fixed{color:var(--fixed)}
+#grid .est{color:var(--est)}
+#grid .wind{color:var(--wind)}
+#grid .mk{font-size:.75em;margin-left:3px}
+@media (max-width:600px){
+  #grid{min-width:700px;font-size:13px}
+  #grid col.cn{width:38px}#grid col.cd{width:178px}#grid col.cp{width:120px}#grid col.ct{width:150px}#grid col.cw{width:84px}#grid col.cs{width:120px}
+  #grid [data-c="0"],#grid [data-f]{left:38px}
+  #grid th,#grid td{padding:0 8px}
+  #grid .rn{padding:0 2px}
+  .gridbar .gsep{display:none}
+}
