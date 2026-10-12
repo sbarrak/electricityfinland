@@ -87,7 +87,7 @@ const GridView = (() => {
   // ------------------------------------------------------------ cells
   const raw = (r, c) => [r.t, r.spot, r.total, r.wind, STATUS[r.st] || ''][c];
   const limOf = v => v == null ? '' : S.high_on && +v.toFixed(2) >= S.high ? 'hi' : S.low_on && +v.toFixed(2) <= S.low ? 'lo' : '';
-  function cls(r, c) {  // colour of a cell: red / green = past a limit (on the Spot or Total column picked above), green = fixed, orange = estimate
+  function cls(r, c) {  // colour of a cell: red / green = past a limit (on the Spot or Total column picked above), violet = fixed, slate = estimate
     if (c === 3) return 'wind';
     if (c === 4) return r.st === 'fixed' ? 'fixed' : r.st === 'estimate' || r.st === 'mixed' ? 'est' : '';
     if (c === 0) return '';
@@ -151,7 +151,7 @@ const GridView = (() => {
     let h = `<tr class="pad" style="height:${i0 * rh}px"><td colspan="${NC + 1}"></td></tr>`;
     for (let i = i0; i < i1; i++) {
       const r = rows[i], inR = R && i >= R.r0 && i <= R.r1;
-      h += `<tr><td class="rn${inR ? ' on' : ''}" data-r="${i}" data-c="-1">${i + 1}</td>`;
+      h += `<tr class="st-${r.st === 'mixed' ? 'estimate' : r.st}"><td class="rn${inR ? ' on' : ''}" data-r="${i}" data-c="-1">${i + 1}</td>`;
       for (let c = 0; c < NC; c++) {
         const s = inR && c >= R.c0 && c <= R.c1 ? ' sel' : '';
         h += `<td data-r="${i}" data-c="${c}" class="${cls(r, c)}${s}"${c === 3 && r.wind != null ? ` title="wind ${r.wsrc}"` : ''}>${text(r, c)}</td>`;
@@ -342,7 +342,7 @@ const GridView = (() => {
 // A minimal .xlsx writer (one sheet, inline strings, uncompressed zip): head [text], rows [[{n, f, k} | {s, k}]], widths [chars].
 // f: number format (1 = 0, 2 = 0.00, 164… = dates), k: colour class of the grid (hi, lo, fixed, est, wind).
 function xlsx(head, rows, widths) {
-  const FONTS = ['', '<b/>', '<b/><color rgb="FFDC2626"/>', '<color rgb="FF16A34A"/>', '<b/><color rgb="FF16A34A"/>', '<color rgb="FFEA580C"/>', '<color rgb="FF0891B2"/>'];
+  const FONTS = ['', '<b/>', '<b/><color rgb="FFB91C1C"/>', '<color rgb="FF6D28D9"/>', '<b/><color rgb="FF15803D"/>', '<i/><color rgb="FF475569"/>', '<color rgb="FF0891B2"/>'];
   const FONT_OF = { hdr: 1, hi: 2, fixed: 3, lo: 4, est: 5, wind: 6 };
   const xfs = [[0, 0]], xf = (f, k) => { const p = [f || 0, FONT_OF[k] || 0]; let i = xfs.findIndex(x => x[0] === p[0] && x[1] === p[1]); if (i < 0) i = xfs.push(p) - 1; return i; };
   const x = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);

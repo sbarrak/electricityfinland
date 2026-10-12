@@ -169,8 +169,11 @@ grid-template-areas:"pick name phone key email del"}
 @container (max-width:480px){.recip{grid-template-columns:auto minmax(0,1fr) auto;
   grid-template-areas:"pick name del" "phone phone phone" "key key key" "email email email"}}
 /* v6: Grid View tab (grid.js): a table of the period instead of the chart, about 10 rows in view, both scroll bars */
-:root{--sel:#dbe7fd;--sel-head:#c7d8fb}
-@media (prefers-color-scheme:dark){:root{--sel:#1e3a6e;--sel-head:#26467f}}
+/* status colours (fixed = violet, estimate = slate) are kept away from the limit colours (red / green), which also get a tinted cell */
+:root{--sel:#dbe7fd;--sel-head:#c7d8fb;--g-hi:#b91c1c;--g-hi-bg:#fde8e8;--g-lo:#15803d;--g-lo-bg:#e3f6e8;
+--g-fixed:#6d28d9;--g-fixed-bg:#f6f3ff;--g-est:#475569;--g-est-bg:#f1f4f8}
+@media (prefers-color-scheme:dark){:root{--sel:#1e3a6e;--sel-head:#26467f;--g-hi:#fca5a5;--g-hi-bg:#3f1d24;--g-lo:#86efac;--g-lo-bg:#123222;
+--g-fixed:#c4b5fd;--g-fixed-bg:#1d1b3b;--g-est:#a3b1c6;--g-est-bg:#18212f}}
 .chartcard.gridmode .plot,.chartcard.gridmode .hscroll,.chartcard.gridmode .chartopts,.chartcard.gridmode .yz{display:none}
 .chartcard:not(.gridmode) .gridonly{display:none}
 .zoom .gres{min-width:4.5em;text-align:center;color:var(--fg);font-weight:600;font-variant-numeric:tabular-nums;margin-right:0}
@@ -197,14 +200,19 @@ button:disabled{opacity:.45;cursor:default}
 #grid tfoot .rn,#grid tfoot [data-f]{z-index:3}
 #grid .pad td{height:auto;padding:0;border:0}
 #grid .empty td{text-align:center;color:var(--muted);cursor:default}
-#grid td.sel{background:var(--sel)}
-#grid th.on,#grid td.rn.on{background:var(--sel-head);color:var(--fg)}
-#grid .hi{color:var(--hi);font-weight:700}
-#grid .lo{color:var(--lo);font-weight:700}
-#grid .fixed{color:var(--fixed)}
-#grid .est{color:var(--est)}
+#grid tbody tr.st-fixed td{background:var(--g-fixed-bg)}
+#grid tbody tr.st-estimate td{background:var(--g-est-bg)}
+#grid .fixed{color:var(--g-fixed)}
+#grid .est{color:var(--g-est);font-style:italic}
 #grid .wind{color:var(--wind)}
-#grid .mk{font-size:.75em;margin-left:3px}
+#grid .hi{color:var(--g-hi);font-weight:700}
+#grid .lo{color:var(--g-lo);font-weight:700}
+#grid tbody tr td.hi{background:var(--g-hi-bg)}
+#grid tbody tr td.lo{background:var(--g-lo-bg)}
+#grid .mk{font-size:.75em;margin-left:3px;font-style:normal}
+#grid .mhi .mk{color:var(--g-hi)}#grid .mlo .mk{color:var(--g-lo)}
+#grid tbody tr td.sel{background:var(--sel)}
+#grid th.on,#grid tbody tr td.rn.on{background:var(--sel-head);color:var(--fg)}
 @media (max-width:600px){
   #grid{min-width:700px;font-size:13px}
   #grid col.cn{width:38px}#grid col.cd{width:178px}#grid col.cp{width:120px}#grid col.ct{width:150px}#grid col.cw{width:84px}#grid col.cs{width:120px}

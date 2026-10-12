@@ -464,7 +464,7 @@ function build() {
   if (tab === 'grid') {  // the table instead of the chart (grid.js)
     chart?.destroy(); chart = null;
     renderCards(); renderBreakdown();
-    $('#legend').textContent = '· red ▲ = at or above your high limit, green ▼ = at or below your low limit (on the Spot or Total cost column picked above, underlined) · green = published future price (fixed) · orange = estimate (not fixed) · blue = wind power MW (actual when there is one, otherwise the forecast)';
+    $('#legend').textContent = '· red ▲ = at or above your high limit, green ▼ = at or below your low limit (on the Spot or Total cost column picked above, underlined) · violet rows = published future price (fixed) · grey italic rows = estimate (not fixed) · blue = wind power MW (actual when there is one, otherwise the forecast)';
     setView(view.min, view.max);
     return status();
   }
