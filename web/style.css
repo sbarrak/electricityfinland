@@ -221,3 +221,9 @@ button:disabled{opacity:.45;cursor:default}
   #grid .rn{padding:0 2px}
   .gridbar .gsep{display:none}
 }
+
+/* cookie question for visitor statistics (analytics.js) */
+.consent{position:fixed;left:12px;right:12px;bottom:calc(12px + env(safe-area-inset-bottom));max-width:520px;margin:0 auto;z-index:50;box-shadow:0 4px 20px rgba(0,0,0,.25)}
+.consent p{margin:0 0 6px}
+.consent .dlgbtns{justify-content:flex-end}
+.cookielink{display:block;text-align:center;margin:8px 0 16px}

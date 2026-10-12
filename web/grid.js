@@ -317,8 +317,8 @@ const GridView = (() => {
     });
     g('gCopy').onclick = copy;
     g('gClear').onclick = () => { clear(); paint(); };
-    g('gCsv').onclick = exportCsv;
-    g('gXlsx').onclick = exportXlsx;
+    g('gCsv').onclick = () => { exportCsv(); Analytics.event('export', 'csv'); };
+    g('gXlsx').onclick = () => { exportXlsx(); Analytics.event('export', 'xlsx'); };
   }
   let wheelSum = 0;
   function pick(x, y) {

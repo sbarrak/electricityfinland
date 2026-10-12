@@ -99,6 +99,24 @@ The app tells browsers to always check for new files, but a browser that cached 
 ### Forgot the login?
 Add `RESET_ADMIN=1` to `stack.env` (or `.env`), restart once, log in with `admin` / `admin` (this resets the admin account; other users are not touched), choose new credentials, then remove the line. A user who forgot their password: the admin presses **Reset password** next to them and gives them a temporary one.
 
+## Visitor statistics and Google Search (optional)
+See who visits the page with **Google Analytics 4** and/or **Matomo**, and get the site into **Google Search Console**. Everything is off until you fill in the variables in `stack.env` (or `.env`) and restart (`docker compose up -d`; Portainer: update the stack). The values are checked; one that does not look right is ignored and logged.
+
+| Variable | What |
+|---|---|
+| `GA_MEASUREMENT_ID` | Google Analytics 4 Measurement ID, `G-XXXXXXXXXX` ([analytics.google.com](https://analytics.google.com) → Admin → Data streams → Web) |
+| `GOOGLE_SITE_VERIFICATION` | Search Console *HTML file* verification: the file name Google gives you, e.g. `google1234abcd.html` |
+| `MATOMO_URL`, `MATOMO_SITE_ID` | your Matomo (self-hosted, e.g. on the NAS, or Matomo Cloud), e.g. `https://matomo.example.com/` and `1` |
+| `MATOMO_COOKIES` | `false` (default): Matomo runs without cookies and needs no consent. `true`: it uses cookies, asked for like Google Analytics |
+| `ANALYTICS_CONSENT` | `true` (default): visitors are asked before Google Analytics (or Matomo with cookies) sets cookies, as the GDPR requires in Finland. A *Cookie settings* link at the bottom of the page changes the choice |
+| `SITE_URL` | the public address, e.g. `https://power.example.com`, used in `sitemap.xml` / `robots.txt` (empty = taken from the request) |
+| `SEARCH_INDEXING` | `false`: `robots.txt` asks search engines not to index the site |
+
+- **What is counted**: a page view for the login screen, the account screen and each tab (*Prices*, *Estimate vs actual*, *Grid View*, as `…#prices` etc.), and the events *refresh_prices* and *export* (csv / xlsx). No usernames, prices or settings are sent. Standalone mode (`ElectricityFinland.html`) never loads any of it.
+- **Google Search Console**: add a *URL prefix* property with your public address (e.g. `https://power.example.com/`), pick **HTML file**, put the file name into `GOOGLE_SITE_VERIFICATION`, restart and press *Verify*. A *Domain* property is verified with a DNS TXT record at your domain registrar instead (nothing to set here). Then submit `https://power.example.com/sitemap.xml` under *Sitemaps*. Only the login screen is public, so that is what Google can index.
+- **Matomo**: in Matomo add a website with your public address and copy its ID. For a self-hosted Matomo on another host name, nothing else is needed; the page loads `matomo.js` and sends to `matomo.php` there.
+- Check it: open `https://<your site>/api/analytics` (shows what is switched on), `/robots.txt`, `/sitemap.xml` and `/google….html`. In Google Analytics *Realtime* or Matomo *Visits → Real-time* your own visit shows up within a minute (ad blockers hide it).
+
 ## Costs
 Enter all per-kWh fees in **c/kWh including VAT**, as they appear on Finnish invoices. Default electricity tax (class I incl. security-of-supply fee) is 2.827 c/kWh. Monthly fees are shown as €/month; tick *Spread monthly fees* and enter your monthly consumption to include them in the total c/kWh.
 
@@ -108,7 +126,7 @@ docker-compose.yml   nginx (static + /api proxy) + app
 docker-compose.portainer.yml  same for Portainer: builds from GitHub, keeps data + web files on the NAS
 setup/Dockerfile     one-shot container that copies web/ and nginx config to the NAS folders
 app/main.py          FastAPI: fetchers, cost calc, alarms, notifications, login (SQLite in ./data)
-web/                 index.html, app.js, style.css (Chart.js), grid.js (Grid View tab), local.js (standalone backend)
+web/                 index.html, app.js, style.css (Chart.js), grid.js (Grid View tab), local.js (standalone backend), analytics.js (Google Analytics / Matomo)
 ElectricityFinland.html  double-click launcher for standalone mode
 run.bat / run.sh     local server launcher (no Docker/nginx)
 run-dev.bat / run-dev.sh  same without login, for testing

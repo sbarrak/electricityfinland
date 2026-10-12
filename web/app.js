@@ -206,7 +206,10 @@ async function api(path, opts = {}) {
   if (!r.ok) throw new Error(j.detail || r.statusText);
   return j;
 }
-const screen = name => ['loading', 'login', 'change', 'main'].forEach(n => $('#' + n).classList.toggle('hidden', n !== name));
+const screen = name => {
+  ['loading', 'login', 'change', 'main'].forEach(n => $('#' + n).classList.toggle('hidden', n !== name));
+  if (name !== 'loading') Analytics.page({ login: 'login', change: 'account', main: tab }[name]);  // visitor statistics (analytics.js)
+};
 function openChange(forced) {
   $('#changeCancel').classList.toggle('hidden', forced);
   $('#changeHint').classList.toggle('hidden', !forced);
@@ -253,7 +256,7 @@ $('#changeCancel').onclick = () => screen('main');
 $('#account').onclick = () => openChange(false);
 $('#logout').onclick = () => api('logout', { method: 'POST' }).then(() => screen('login'));
 $('#refresh').onclick = async () => {
-  flash('Refreshing…');
+  flash('Refreshing…'); Analytics.event('refresh_prices');
   try { const r = await api('refresh', { method: 'POST' }); await load(); flash(Object.entries(r).map(([k, v]) => `${k}: ${v}`).join(' · ')); }
   catch (e) { flash('Refresh: ' + e.message); }
 };
@@ -267,7 +270,7 @@ function seg(id, cur, fn) {
   return mark;
 }
 seg('mode', mode, v => { store('mode', mode = v); build(); });
-seg('tabs', tab, v => { tab = v; build(); });
+seg('tabs', tab, v => { tab = v; build(); Analytics.page(tab); });
 const check = (id, cur, fn) => { $('#' + id).checked = cur; $('#' + id).onchange = e => fn(e.target.checked); };
 check('vat', vat, v => { vat = v; store('vat', v ? '1' : '0'); build(); });
 check('avg', avgOn, v => { avgOn = v; store('avg', v ? '1' : '0'); update(); });

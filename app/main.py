@@ -898,6 +898,73 @@ async def test_notify(body: dict | None = None, u: dict = Depends(user)):
         return await notify(c, s, msg, force=channel)
 
 
+# ---------------------------------------------------------------- analytics + search engines (all optional, set in stack.env / .env)
+def _env_match(key, pattern):  # a value that does not look right is ignored (and logged), so nothing odd ends up in the page
+    v = os.getenv(key, "").strip()
+    if v and not re.fullmatch(pattern, v):
+        log.warning("%s=%r does not look right and is ignored", key, v)
+        return ""
+    return v
+
+
+def _env_on(key, default):
+    v = os.getenv(key, "").strip().lower()
+    return default if not v else v in ("1", "true", "yes", "on")
+
+
+GA_ID = _env_match("GA_MEASUREMENT_ID", r"G-[A-Z0-9]{4,20}")  # Google Analytics 4
+GSC_FILE = _env_match("GOOGLE_SITE_VERIFICATION", r"(google)?[A-Za-z0-9_-]{8,64}(\.html)?")  # Search Console HTML file
+GSC_FILE = GSC_FILE and "google" + GSC_FILE.removeprefix("google").removesuffix(".html") + ".html"
+MATOMO_URL = _env_match("MATOMO_URL", r"https?://[A-Za-z0-9.-]+(:\d+)?(/[A-Za-z0-9._~/-]*)?")
+MATOMO_URL = MATOMO_URL and MATOMO_URL.rstrip("/") + "/"
+MATOMO_SITE = _env_match("MATOMO_SITE_ID", r"\d{1,6}")
+MATOMO_COOKIES = _env_on("MATOMO_COOKIES", False)  # off: Matomo runs cookieless and needs no consent
+CONSENT = _env_on("ANALYTICS_CONSENT", True)  # ask before Google Analytics (and Matomo with cookies) may set cookies
+INDEXING = _env_on("SEARCH_INDEXING", True)  # off: robots.txt asks search engines to stay away
+SITE_URL = _env_match("SITE_URL", r"https?://[A-Za-z0-9.-]+(:\d+)?/?").rstrip("/")
+if bool(MATOMO_URL) != bool(MATOMO_SITE):
+    log.warning("Matomo needs both MATOMO_URL and MATOMO_SITE_ID; it stays off")
+if GA_ID or (MATOMO_URL and MATOMO_SITE):
+    log.info("analytics on: %s", ", ".join(n for n, on in (("Google Analytics", GA_ID), ("Matomo", MATOMO_URL and MATOMO_SITE)) if on))
+
+
+@app.get("/api/analytics")  # public: the page asks before login which trackers to load
+async def analytics():
+    out = {"consent": CONSENT}
+    if GA_ID:
+        out["ga"] = GA_ID
+    if MATOMO_URL and MATOMO_SITE:
+        out["matomo"] = {"url": MATOMO_URL, "site_id": MATOMO_SITE, "cookies": MATOMO_COOKIES}
+    return out
+
+
+def site_url(request):
+    if SITE_URL:
+        return SITE_URL
+    proto = request.headers.get("x-forwarded-proto") or request.url.scheme
+    return f"{proto}://{request.headers.get('host', request.url.netloc)}"
+
+
+@app.get("/robots.txt")
+async def robots(request: Request):
+    if not INDEXING:
+        return Response("User-agent: *\nDisallow: /\n", media_type="text/plain")
+    return Response(f"User-agent: *\nAllow: /\nDisallow: /api/\n\nSitemap: {site_url(request)}/sitemap.xml\n", media_type="text/plain")
+
+
+@app.get("/sitemap.xml")
+async def sitemap(request: Request):
+    return Response('<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n'
+                    f"  <url><loc>{html.escape(site_url(request))}/</loc><changefreq>daily</changefreq></url>\n</urlset>\n",
+                    media_type="application/xml")
+
+
+if GSC_FILE:  # Google Search Console: "HTML file" verification
+    @app.get("/" + GSC_FILE, include_in_schema=False)
+    async def google_verification():
+        return Response(f"google-site-verification: {GSC_FILE}", media_type="text/html")
+
+
 # Local run without nginx: serve the web page from ../web (in Docker nginx does this)
 class NoCacheStatic(StaticFiles):  # always revalidate, so a browser never mixes old and new page files
     async def get_response(self, path, scope):
