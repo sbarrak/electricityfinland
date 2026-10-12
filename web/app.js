@@ -629,10 +629,8 @@ function renderCards() {
     if (!best || avg < best.avg) best = { avg, ts: fut[i][0] };
   }
   const w = D.wind_actual.filter(r => r[0] <= now).at(-1) || D.wind.find(r => r[0] >= now - 3600);
-  const p = cur && val(cur);
-  // colour by the price the alarms use (basis + VAT from the alarm bar), whatever the chart shows
-  const ap = cur && Math.round(priceValue(S, cur[0], cur[1], S.alarm_basis, S.alarm_vat) * 1000) / 1000;
-  const cls = ap == null ? '' : S.high_on && ap >= S.high ? 'hi' : S.low_on && ap <= S.low ? 'lo' : '';
+  // the shown price (spot or total, with or without VAT) against the limits of the alarm bar
+  const p = cur && val(cur), cls = p == null ? '' : S.high_on && p >= S.high ? 'hi' : S.low_on && p <= S.low ? 'lo' : '';
   const tr = cur && priceParts(S, cur[0], cur[1]);
   const card = (id, t, v, sub, c = '') => `<div class="card stat ${c}" data-id="${id}"><button class="info" type="button" aria-label="What does this mean?">i</button>` +
     `<small>${t}</small><b>${v}</b><span>${sub}</span><p class="desc${openInfo.has(id) ? '' : ' hidden'}">${INFO[id]}</p></div>`;
