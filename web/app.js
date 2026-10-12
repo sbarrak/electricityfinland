@@ -18,7 +18,7 @@ const MAX_DAYS = 2200, DAY = 864e5, MIN_SPAN = 3 * 36e5, BUCKETS = [900, 3600, 1
 const RES = { 900: '15 min', 3600: '1 h', 10800: '3 h', 21600: '6 h', 86400: '1 day' };
 const NAMES = { spot: 'spot', total: 'total cost' };
 let D = null, S = {}, chart = null, filled = false, loadedDays = 60, bucket = null, avgs = [], tickStep = 1, me = {};
-let mode = store('mode') === 'spot' ? 'spot' : 'total', vat = store('vat') !== '0', cmp = store('cmp') === '1', avgOn = store('avg') === '1';
+let mode = store('mode') === 'spot' ? 'spot' : 'total', vat = store('vat') !== '0', avgOn = store('avg') === '1';
 let tab = 'prices', view = null, yZoom = 1, yPos = 0.5, touched = 0, sel = null;  // sel: chart point picked for the breakdown
 let tipOn = store('tip') !== '0';  // the box with the price of the touched chart point
 const tipEvents = () => tipOn ? ['mousemove', 'mouseout', 'click', 'touchstart', 'touchmove'] : [];  // no events: the box never opens (taps and drags still work)
@@ -267,11 +267,10 @@ function seg(id, cur, fn) {
   return mark;
 }
 seg('mode', mode, v => { store('mode', mode = v); build(); });
-const markTab = seg('tabs', tab, v => { tab = v; build(); });
+seg('tabs', tab, v => { tab = v; build(); });
 const check = (id, cur, fn) => { $('#' + id).checked = cur; $('#' + id).onchange = e => fn(e.target.checked); };
 check('vat', vat, v => { vat = v; store('vat', v ? '1' : '0'); build(); });
 check('avg', avgOn, v => { avgOn = v; store('avg', v ? '1' : '0'); update(); });
-check('cmp', cmp, v => { cmp = v; store('cmp', v ? '1' : '0'); showTabs(); });
 check('tip', tipOn, v => {  // the box with the price of the touched point can cover most of the chart on a phone
   tipOn = v; store('tip', v ? '1' : '0');
   if (!chart) return;
@@ -279,11 +278,6 @@ check('tip', tipOn, v => {  // the box with the price of the touched point can c
   if (!v) { chart.setActiveElements([]); chart.tooltip.setActiveElements([], { x: 0, y: 0 }); }  // hide a box that is showing right now
   chart.update('none');
 });
-function showTabs() {
-  $('#tabs').classList.toggle('hidden', !cmp);
-  if (!cmp && tab === 'compare') { tab = 'prices'; markTab(tab); build(); }
-}
-showTabs();
 
 const midnight = (days = 0) => { const d = new Date(); d.setHours(0, 0, 0, 0); d.setDate(d.getDate() + days); return +d; };
 const defaultView = () => ({ min: midnight(-3), max: midnight(3) });
