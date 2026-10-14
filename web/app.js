@@ -335,6 +335,10 @@ const fmt = v => v == null || !isFinite(v) ? '–' : v.toFixed(2);
 const val = r => priceValue(S, r[0], r[1], mode, vat);
 const lastActual = () => D.actual.length ? D.actual.at(-1)[0] : 0;
 const showThr = () => mode === S.alarm_basis && vat === S.alarm_vat;
+let limCol = {};  // the colours of the high / low limit lines, read when the chart is built
+// a price at or above the high limit gets the high limit's colour, at or below the low limit green (only while the limit lines show)
+const limitColor = v => v == null || !showThr() ? undefined
+  : S.high_on && +v.toFixed(2) >= S.high ? limCol.hi : S.low_on && +v.toFixed(2) <= S.low ? limCol.lo : undefined;
 const bucketStart = (ts, b) => { const off = -new Date(ts * 1000).getTimezoneOffset() * 60; return Math.floor((ts + off) / b) * b - off; };
 
 function agg(rows, b, f, tail) {  // [[ts, v]] -> [{x, y}] averaged per bucket of b seconds (local time)
@@ -472,8 +476,10 @@ function build() {
   chart?.destroy();
   renderCards(); renderBreakdown();
   const grid = { color: css('--grid') }, ticks = { color: css('--muted') }, small = innerWidth < 600;
+  limCol = { hi: css('--hi'), lo: css('--lo') };
   const datasets = series().map(d => ({ ...d, data: [], pointRadius: 0, borderWidth: d.kind === 'wind' ? 1.5 : 2,
-    stepped: d.kind === 'price' ? 'after' : false, yAxisID: d.kind === 'price' ? 'y' : 'y1' }));
+    stepped: d.kind === 'price' ? 'after' : false, yAxisID: d.kind === 'price' ? 'y' : 'y1',
+    ...d.kind === 'price' && { segment: { borderColor: s => limitColor(s.p0.parsed.y) } } }));  // a step takes the colour of its price
   chart = new Chart($('#chart'), {
     type: 'line', data: { datasets }, plugins: [overlay],
     options: {
@@ -498,6 +504,7 @@ function build() {
   $('#legend').textContent = tab === 'compare'
     ? '· solid = published day-ahead price · dashed = estimate made before the price was published'
     : '· blue = published price up to now · green = published future price (fixed) · orange dashed = estimate (not fixed) · cyan = wind power MW';
+  $('#legend').textContent += ' · where the limit lines show, the price curve is red at or above the high limit and green at or below the low limit';
   bucket = null;
   setView(view.min, view.max);
   status();
@@ -537,7 +544,10 @@ function update() {
     for (const d of chart.data.datasets) d.data = agg(d.rows, b, d.kind === 'price' ? val : r => r[1], d.kind === 'price');
   }
   const markers = span / 1000 / b <= W / 14;  // few enough points in view: draw each data point
-  for (const d of chart.data.datasets) { d.pointRadius = markers ? 2.5 : 0; d.pointBackgroundColor = d.borderColor; }
+  for (const d of chart.data.datasets) {
+    d.pointRadius = markers ? 2.5 : 0;
+    d.pointBackgroundColor = d.kind === 'price' ? (c => limitColor(c.parsed?.y) || d.borderColor) : d.borderColor;
+  }
   avgs = averages();
   Object.assign(chart.options.scales.x, { min: view.min, max: view.max });
   let [lo, hi] = yRange(); lo = Math.floor(lo); hi = Math.ceil(hi);
