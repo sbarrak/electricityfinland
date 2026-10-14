@@ -484,21 +484,22 @@ const val = r => priceValue(S, r[0], r[1], mode, vat);
 const lastActual = () => D.actual.length ? D.actual.at(-1)[0] : 0;
 const showThr = () => tab !== 'consumption' && mode === S.alarm_basis && vat === S.alarm_vat;
 let limCol = {};  // the colours of the high / low limit lines, read when the chart is built
-// a price at or above the high limit gets the high limit's colour, at or below the low limit green (only while the limit lines show)
-const limitColor = v => v == null || !showThr() ? undefined
-  : S.high_on && +v.toFixed(2) >= S.high ? limCol.hi : S.low_on && +v.toFixed(2) <= S.low ? limCol.lo : undefined;
+const alarmVal = r => priceValue(S, r[0], r[1], S.alarm_basis, S.alarm_vat);  // the price the alarms check, whatever the chart shows
+// a chart point (its price on the alarm basis in .a) at or above the high limit is red, at or below the low limit green
+const limitColor = p => p?.a == null || tab === 'consumption' ? undefined
+  : S.high_on && +p.a.toFixed(2) >= S.high ? limCol.hi : S.low_on && +p.a.toFixed(2) <= S.low ? limCol.lo : undefined;
 const bucketStart = (ts, b) => { const off = -new Date(ts * 1000).getTimezoneOffset() * 60; return Math.floor((ts + off) / b) * b - off; };
 
-function agg(rows, b, f, tail) {  // [[ts, v]] -> [{x, y}] averaged per bucket of b seconds (local time)
-  const out = []; let key = null, sum = 0, n = 0;
-  const push = () => n && out.push({ x: key * 1000, y: sum / n });
+function agg(rows, b, f, tail, g) {  // [[ts, v]] -> [{x, y}] averaged per bucket of b seconds (local time); g: also average g(r) into .a
+  const out = []; let key = null, sum = 0, n = 0, sa = 0;
+  const push = () => n && out.push(g ? { x: key * 1000, y: sum / n, a: sa / n } : { x: key * 1000, y: sum / n });
   for (const r of rows) {
     const k = b === 900 ? r[0] : bucketStart(r[0], b);
-    if (k !== key) { push(); key = k; sum = 0; n = 0; }
-    sum += f(r); n++;
+    if (k !== key) { push(); key = k; sum = 0; n = 0; sa = 0; }
+    sum += f(r); n++; if (g) sa += g(r);
   }
   push();
-  if (tail && out.length) out.push({ x: out.at(-1).x + (out.length > 1 ? out.at(-1).x - out.at(-2).x : b * 1000), y: out.at(-1).y });
+  if (tail && out.length) out.push({ ...out.at(-1), x: out.at(-1).x + (out.length > 1 ? out.at(-1).x - out.at(-2).x : b * 1000) });
   return out;
 }
 
@@ -727,7 +728,7 @@ function build() {
   limCol = { hi: css('--hi'), lo: css('--lo') };
   const datasets = series().map(d => ({ ...d, data: [], pointRadius: 0, borderWidth: d.borderWidth || (d.kind === 'wind' ? 1.5 : 2),
     stepped: d.kind === 'wind' || d.kind === 'temp' ? false : 'after', yAxisID: d.axis || { price: 'y', wind: 'y1', temp: 'y2' }[d.kind],
-    ...d.kind === 'price' && { segment: { borderColor: s => limitColor(s.p0.parsed.y) } } }));  // a step takes the colour of its price
+    ...d.kind === 'price' && { segment: { borderColor: s => limitColor(s.chart.data.datasets[s.datasetIndex].data[s.p0DataIndex]) } } }));  // a step takes the colour of its price
   const cons = tab === 'consumption';
   chart = new Chart($('#chart'), {
     type: 'line', data: { datasets }, plugins: [overlay, weatherRow],
@@ -766,7 +767,7 @@ function build() {
     ? '· solid = published day-ahead price · dashed = estimate made before the price was published'
     : '· blue = published price up to now · violet = published future price (fixed) · orange dashed = estimate (not fixed)' + (windOn ? ' · yellow = wind power MW' : '') +
       (showTemp() ? ' · dotted = temperature °C, red above 0, blue below' : '') + (showWx() ? ` · under the time: weather and wind m/s in ${S.wx_place}` : '');
-  if (!cons) $('#legend').textContent += ' · where the limit lines show, the price curve is red at or above the high limit and green at or below the low limit';
+  if (!cons) $('#legend').textContent += ' · the price curve is red where the price is at or above your high alarm limit and green at or below your low limit (checked on the alarm basis)';
   bucket = null;
   setView(view.min, view.max);
   status();
@@ -805,7 +806,7 @@ function update() {
   if (tab === 'consumption') b = Math.max(b, D.consRes);  // never finer than the meter readings
   if (b !== bucket) {
     bucket = b;
-    for (const d of chart.data.datasets) d.data = d.kind === 'kwh' ? aggSum(d.rows, b) : agg(d.rows, d.kind === 'temp' ? Math.max(b, 3600) : b, d.kind === 'price' ? val : r => r[1], d.kind === 'price');
+    for (const d of chart.data.datasets) d.data = d.kind === 'kwh' ? aggSum(d.rows, b) : agg(d.rows, d.kind === 'temp' ? Math.max(b, 3600) : b, d.kind === 'price' ? val : r => r[1], d.kind === 'price', d.kind === 'price' && alarmVal);
     costs = new Map();
     if (tab === 'consumption') {
       chart.options.scales.y.title.text = `kWh per ${RES[b]}`;  // what each interval cost: kWh × its price (spot or total cost, with or without VAT, as chosen above)
@@ -820,7 +821,7 @@ function update() {
   const markers = span / 1000 / b <= W / 14;  // few enough points in view: draw each data point
   for (const d of chart.data.datasets) {
     d.pointRadius = markers ? 2.5 : 0;
-    d.pointBackgroundColor = d.kind === 'price' ? (c => limitColor(c.parsed?.y) || d.borderColor) : d.borderColor;
+    d.pointBackgroundColor = d.kind === 'price' ? (c => limitColor(c.raw) || d.borderColor) : d.borderColor;
   }
   avgs = averages();
   Object.assign(chart.options.scales.x, { min: view.min, max: view.max });
