@@ -270,9 +270,9 @@ dialog label.custom{display:flex;align-items:center;gap:6px;color:var(--fg)}
 dialog label.custom input{width:36px;height:28px;padding:0;border:0;background:none;cursor:pointer}
 /* v17: chart style (Prices tab): line, A bars, B hourly bars + range, C heatmap */
 .chartstyle{display:inline-flex;align-items:center;gap:6px}
-.chartcard.heatmode .plot,.chartcard.heatmode .chartopts,.chartcard.heatmode .yz{display:none}
-.chartcard:not(.heatmode) .heatonly{display:none}
-.heatwrap{overflow:auto;max-height:clamp(300px,55vh,560px);margin-top:4px;overscroll-behavior:contain;scrollbar-color:var(--line) transparent}
+.chartcard.htmlmode .plot,.chartcard.htmlmode .chartopts,.chartcard.htmlmode .yz,.chartcard.statmode .chartopts,.chartcard.statmode .yz{display:none}
+.chartcard:not(.htmlmode) .htmlonly,.chartcard:not(.barmode) .barsonly,.chartcard.barmode .tipopt{display:none}
+.htmlview{overflow:auto;max-height:clamp(300px,55vh,560px);margin-top:4px;overscroll-behavior:contain;scrollbar-color:var(--line) transparent}
 #heat{border-collapse:separate;border-spacing:3px;width:100%;table-layout:fixed;font-variant-numeric:tabular-nums;font-size:.85em}
 #heat th{font-weight:500;color:var(--muted);font-size:.9em;text-align:left;white-space:nowrap;padding:0 2px}
 #heat thead th{position:sticky;top:0;background:var(--card);z-index:1}
@@ -286,3 +286,47 @@ dialog label.custom input{width:36px;height:28px;padding:0;border:0;background:n
 #heat td.now{outline:2px solid var(--fg);outline-offset:-1px}
 #heat td.on{outline:2px dashed var(--accent);outline-offset:-1px}
 @media (max-width:600px){#heat{border-spacing:1px;font-size:.7em}#heat th:first-child{width:3.2em}#heat tbody th{white-space:normal;line-height:1.1}#heat tbody th span{display:block}#heat td{height:26px;border-radius:3px}}
+/* v18: readout strip, night shading, cheapest-hours ladder, calendar, cost helper */
+:root{--night:rgba(30,58,138,.07)}
+@media (prefers-color-scheme:dark){:root{--night:rgba(148,163,184,.09)}}
+.readout{display:flex;flex-wrap:wrap;gap:2px 14px;align-items:baseline;min-height:2.6em;padding:6px 10px;margin:2px 0 4px;border-radius:10px;background:var(--bg);font-size:.9em;font-variant-numeric:tabular-nums}
+.readout .rp{font-weight:700;font-size:1.1em}
+.readout .rp.hi{color:var(--hi)} .readout .rp.lo{color:var(--lo)}
+.readout span:not(.rp):not(.hint){color:var(--muted)}
+.ladder{list-style:none;margin:0;padding:0;columns:2 340px;column-gap:24px}
+.ladder li{display:grid;grid-template-columns:2.2em 9.5em 1fr 4em;gap:8px;align-items:center;padding:4px 6px;border-radius:8px;cursor:pointer;break-inside:avoid;font-variant-numeric:tabular-nums}
+.ladder li:hover{background:var(--bg)}
+.ladder .rk{color:var(--muted);text-align:right;font-size:.85em}
+.ladder .tm i{font-style:normal;font-size:.75em;font-weight:700;color:var(--accent)}
+.ladder .br{height:12px;background:var(--grid);border-radius:4px;overflow:hidden}
+.ladder .br i{display:block;height:100%;background:var(--price-line);border-radius:4px}
+.ladder li.hi .br i{background:var(--hi)} .ladder li.lo .br i{background:var(--lo)}
+.ladder li.hi b{color:var(--hi)} .ladder li.lo b{color:var(--lo)}
+.ladder b{text-align:right}
+.ladder li.now{box-shadow:inset 0 0 0 2px var(--fg)}
+.ladder li.on{box-shadow:inset 0 0 0 2px var(--accent)}
+.months{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:12px 20px}
+.month h4{margin:4px 0 6px;font-size:.95em}
+.cal{display:grid;grid-template-columns:repeat(7,1fr);gap:3px;font-variant-numeric:tabular-nums}
+.cal .wd{font-size:.75em;color:var(--muted);text-align:center}
+.cal .day{display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:40px;border-radius:6px;background:var(--grid);font-size:.85em;font-weight:600;cursor:pointer;line-height:1.1}
+.cal .day small{font-size:.75em;font-weight:400;opacity:.8}
+.cal .day.none{background:none;border:1px dashed var(--line);color:var(--muted);cursor:default;font-weight:400}
+.cal .day.hi,.cal .day.lo{color:#fff}
+.cal .day.est{font-style:italic;opacity:.7}
+.cal .day.now{outline:2px solid var(--fg);outline-offset:-1px}
+.helper{margin-top:12px}
+.helper h3{margin:0 0 8px;font-size:1rem}
+.helper h3 small{color:var(--muted);font-weight:400}
+.hrow{display:flex;flex-wrap:wrap;gap:8px 14px;align-items:center}
+.hrow label{display:inline-flex;gap:6px;align-items:center;color:var(--muted);font-size:.9em}
+.hrow input{width:6em}
+.hpresets{display:flex;flex-wrap:wrap;gap:6px}
+.hpresets button{min-height:32px;padding:4px 10px;font-size:.8em;font-weight:500}
+.hout{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px;margin-top:10px}
+.hout .hint{grid-column:1/-1;margin:0}
+.ht{display:flex;flex-direction:column;padding:10px 12px;border-radius:10px;background:var(--bg)}
+.ht small,.ht span{color:var(--muted);font-size:.8em}
+.ht b{font-size:1.4rem;font-variant-numeric:tabular-nums}
+.ht.lo b{color:var(--lo)} .ht.hi b{color:var(--hi)}
+@media (max-width:600px){.ladder li{grid-template-columns:1.5em 8.4em 1fr 3.3em;gap:5px;font-size:.85em}.ladder .tm{white-space:nowrap}.cal .day{min-height:36px}}

@@ -22,8 +22,12 @@ let D = null, S = {}, chart = null, filled = false, loadedDays = 60, bucket = nu
 let mode = store('mode') === 'spot' ? 'spot' : 'total', vat = store('vat') !== '0', avgOn = store('avg') === '1';
 let tab = 'prices', view = null, yZoom = 1, yPos = 0.5, touched = 0, sel = null;  // sel: chart point picked for the breakdown
 let tipOn = store('tip') !== '0';  // the box with the price of the touched chart point
-let chartStyle = ['bars', 'hourly', 'heat'].includes(store('style')) ? store('style') : 'line';  // Prices tab: line, A bars, B hourly + range, C heatmap
-const sty = () => tab === 'prices' ? chartStyle : 'line';  // the other tabs always draw lines
+const STYLES = ['bars', 'hourly', 'heat', 'ladder', 'typical', 'calendar', 'scatter'];  // the Chart drop-down of the Prices tab, A … G
+const HTML_VIEWS = ['heat', 'ladder', 'calendar'], STAT_VIEWS = ['typical', 'scatter'];  // tables / lists, and charts without a time axis
+let chartStyle = STYLES.includes(store('style')) ? store('style') : 'bars';  // A · 15-min bars is the default (an old 'line' choice too)
+const sty = () => tab === 'prices' ? chartStyle : 'line';  // Estimate vs actual and Consumption keep their lines
+const isBars = st => st === 'bars' || st === 'hourly';
+const panZoom = () => chart && !STAT_VIEWS.includes(sty());  // pinch, wheel and drag move the time axis
 let tempOn = store('temp') === '1', wxOn = store('wx') !== '0', windOn = store('wind') !== '0';  // temperature curve, weather row under the chart, wind power
 const tipEvents = () => tipOn ? ['mousemove', 'mouseout', 'click', 'touchstart', 'touchmove'] : [];  // no events: the box never opens (taps and drags still work)
 
@@ -386,8 +390,9 @@ const markTab = seg('tabs', tab, v => {
 const check = (id, cur, fn) => { $('#' + id).checked = cur; $('#' + id).onchange = e => fn(e.target.checked); };
 check('vat', vat, v => { vat = v; store('vat', v ? '1' : '0'); build(); });
 check('avg', avgOn, v => { avgOn = v; store('avg', v ? '1' : '0'); update(); });
+function setStyle(v) { store('style', chartStyle = v); $('#style').value = v; build(); }
 $('#style').value = chartStyle;
-$('#style').onchange = e => { store('style', chartStyle = e.target.value); build(); };
+$('#style').onchange = e => setStyle(e.target.value);
 check('tip', tipOn, v => {  // the box with the price of the touched point can cover most of the chart on a phone
   tipOn = v; store('tip', v ? '1' : '0');
   if (!chart) return;
@@ -655,7 +660,9 @@ const priceBars = {  // one bar per point of each price dataset, from 0 to the p
   id: 'priceBars', beforeDatasetsDraw(c) {
     const x = c.scales.x, y = c.scales.y, g = c.ctx, hourly = sty() === 'hourly';
     const base = Math.min(Math.max(y.getPixelForValue(0), y.top), y.bottom), cap = Math.max(bucket * 1000, 36e5) * 1.1;
+    const now = Date.now();
     g.save(); g.beginPath(); g.rect(c.chartArea.left, y.top, c.chartArea.right - c.chartArea.left, y.bottom - y.top); g.clip();
+    g.textAlign = 'center';
     c.data.datasets.forEach((d, i) => {
       if (d.kind !== 'price' || !c.isDatasetVisible(i)) return;
       const pts = d.data;
@@ -665,28 +672,125 @@ const priceBars = {  // one bar per point of each price dataset, from 0 to the p
         let x0 = x.getPixelForValue(p.x), x1 = x.getPixelForValue(p.x + w);
         const gap = hourly ? Math.min(3, (x1 - x0) * .18) : (x1 - x0 > 4 ? .5 : 0);  // B: separate bars, A: touching columns
         x0 += gap / 2; x1 -= gap / 2;
-        const col = barColor(d, p);
+        const lim = limitColor(p), past = p.x + w <= now, col = past && !d.borderDash ? fade(barColor(d, p), .55) : barColor(d, p);  // the past is paler
         if (hourly && p.hi > p.lo) {
           const a = y.getPixelForValue(p.hi), b = Math.max(y.getPixelForValue(p.lo), a + 1);
           g.fillStyle = fade(col, .3); g.fillRect(x0, Math.min(a, base), x1 - x0, Math.max(b, base) - Math.min(a, base));
         }
-        const py = y.getPixelForValue(p.y);
-        g.fillStyle = col; g.fillRect(x0, Math.min(py, base), Math.max(x1 - x0, 1), Math.abs(base - py));
+        const py = y.getPixelForValue(p.y), bw = x1 - x0;
+        g.fillStyle = col; g.fillRect(x0, Math.min(py, base), Math.max(bw, 1), Math.abs(base - py));
+        // ▲ / ▼ on bars past a limit (readable without telling red from green), and the price itself when the bar is wide enough
+        const mark = lim === limCol.hi ? '▲' : lim === limCol.lo ? '▼' : '', top = Math.min(py, hourly && p.hi > p.lo ? y.getPixelForValue(p.hi) : py);
+        let text = bw >= 24 ? (mark && bw >= 34 ? mark + ' ' : '') + (Math.abs(p.y) < 10 ? p.y.toFixed(1) : Math.round(p.y)) : bw >= 7 ? mark : '';
+        if (!text) continue;
+        g.font = `${bw >= 24 ? 600 : 400} ${bw >= 44 ? 12 : bw >= 24 ? 10 : 9}px sans-serif`;
+        if (g.measureText(text).width > bw + 6) { text = mark; g.font = '9px sans-serif'; if (!text) continue; }
+        g.fillStyle = lim || css('--fg'); g.globalAlpha = past ? .6 : 1;
+        g.fillText(text, (x0 + x1) / 2, p.y < 0 ? Math.max(py, base) + 11 : top - 3);
+        g.globalAlpha = 1;
       }
     });
     g.restore();
   },
 };
-function stepMode(c, e) {  // the bars: each dataset's point whose interval holds the pointer (the default mode needs the pointer near a point)
-  const v = c.scales.x.getValueForPixel(Chart.helpers.getRelativePosition(e, c).x), out = [];
+function pointsAt(c, v) {  // each dataset's point whose interval holds the time v (ms)
+  const out = [];
   c.data.datasets.forEach((d, i) => {
     if (!c.isDatasetVisible(i)) return;
     const pts = d.data; let lo = 0, hi = pts.length - 1, k = -1;
     while (lo <= hi) { const m = (lo + hi) >> 1; if (pts[m].x <= v) { k = m; lo = m + 1; } else hi = m - 1; }
-    if (k >= 0 && pts[k].y != null && v - pts[k].x <= Math.max(bucket * 1000, 36e5) * 1.1) out.push({ element: c.getDatasetMeta(i).data[k], datasetIndex: i, index: k });
+    if (k >= 0 && pts[k].y != null && v - pts[k].x <= Math.max(bucket * 1000, 36e5) * 1.1) out.push({ element: c.getDatasetMeta(i).data[k], datasetIndex: i, index: k, dataset: d, raw: pts[k] });
   });
   return out;
 }
+const stepMode = (c, e) => pointsAt(c, c.scales.x.getValueForPixel(Chart.helpers.getRelativePosition(e, c).x));  // the default mode needs the pointer near a point
+
+// the windows of sec seconds over the published prices from the current slot on: [{ ts, end, avg }] (cheapest 3 h, the cost helper)
+function windows(sec) {
+  const fut = D.actual.filter(r => r[0] >= Date.now() / 1000 - 900), step = fut.length > 1 ? fut[1][0] - fut[0][0] : 3600, n = Math.max(1, Math.round(sec / step)), out = [];
+  let sum = 0;
+  fut.forEach((r, i) => {
+    sum += val(r);
+    if (i >= n) sum -= val(fut[i - n]);
+    if (i >= n - 1) out.push({ ts: fut[i - n + 1][0], end: r[0] + step, avg: sum / n });
+  });
+  return out;
+}
+const cheapest = () => windows(10800).reduce((x, y) => !x || y.avg < x.avg ? y : x, null);
+const nightBands = () => +S.transfer_day > 0 && +S.transfer_night > 0 && +S.transfer_day !== +S.transfer_night;  // only when both rates are set and differ
+const isNight = h => S.night_start > S.night_end ? h >= S.night_start || h < S.night_end : S.night_start <= h && h < S.night_end;
+let best3 = null;  // the cheapest 3 h block, worked out when the chart is built
+const bands = {  // behind the bars: the night-tariff hours and the cheapest 3 h block
+  id: 'bands', beforeDatasetsDraw(c) {
+    const { left, right, top, bottom } = c.chartArea, x = c.scales.x, g = c.ctx;
+    const band = (a, b, col) => { const x0 = Math.max(left, x.getPixelForValue(a)), x1 = Math.min(right, x.getPixelForValue(b)); if (x1 > x0) { g.fillStyle = col; g.fillRect(x0, top, x1 - x0, bottom - top); } };
+    g.save();
+    if (nightBands() && view.max - view.min <= 31 * DAY) {
+      const col = css('--night'), d = new Date(view.min); d.setMinutes(0, 0, 0);
+      let start = null;
+      for (let i = 0; +d <= view.max + 36e5 && i < 800; i++, d.setHours(d.getHours() + 1)) {
+        const n = isNight(d.getHours()) && +d < view.max;
+        if (n && start == null) start = +d;
+        if (!n && start != null) { band(start, +d, col); start = null; }
+      }
+    }
+    if (best3) band(best3.ts * 1000, best3.end * 1000, fade(limCol.lo, .14));
+    g.restore();
+  },
+};
+const notes = {  // over the bars, at the top of the price panel: a summary of each day, and the label of the cheapest 3 h block
+  id: 'notes', afterDatasetsDraw(c) {
+    const { left, right } = c.chartArea, x = c.scales.x, y = c.scales.y, g = c.ctx, la = lastActual();
+    g.save(); g.textAlign = 'center'; g.textBaseline = 'top';
+    const label = (text, cx, ty, col, x0 = left, x1 = right) => {
+      const w = g.measureText(text).width + 10, lx = Math.min(Math.max(cx - w / 2, x0 + 2, left), Math.min(x1, right) - w - 2);
+      if (lx < left - 1) return;
+      g.fillStyle = css('--card'); g.globalAlpha = .85; g.fillRect(lx, ty - 2, w, 16); g.globalAlpha = 1;
+      g.fillStyle = col; g.fillText(text, lx + w / 2, ty);
+    };
+    if (view.max - view.min <= 14 * DAY) {
+      g.font = '11px sans-serif';
+      for (const d = new Date(view.min); +d < view.max; d.setDate(d.getDate() + 1)) {
+        d.setHours(0, 0, 0, 0);
+        const a = +d, b = new Date(a).setDate(d.getDate() + 1), x0 = Math.max(left, x.getPixelForValue(a)), x1 = Math.min(right, x.getPixelForValue(b)), w = x1 - x0;
+        if (w < 64) continue;
+        const pub = D.actual.filter(r => r[0] * 1000 >= a && r[0] * 1000 < b), rows = pub.length ? pub : D.forecast.filter(r => r[0] > la && r[0] * 1000 >= a && r[0] * 1000 < b);
+        if (!rows.length) continue;
+        const v = rows.map(val), avg = v.reduce((s, z) => s + z, 0) / v.length, max = Math.max(...v), est = !pub.length ? 'est. ' : '';
+        const text = w >= 190 ? `${WD[d.getDay()]} ${d.getDate()}.${d.getMonth() + 1}. · ${est}avg ${fmt(avg)} · max ${fmt(max)}` : w >= 120 ? `${est}avg ${fmt(avg)} · max ${fmt(max)}` : `${est}avg ${fmt(avg)}`;
+        label(text, (x0 + x1) / 2, y.top + 3, css('--muted'), x0, x1);
+      }
+    }
+    if (best3) {
+      const x0 = x.getPixelForValue(best3.ts * 1000), x1 = x.getPixelForValue(best3.end * 1000);
+      if (x1 > left && x0 < right) { g.font = '600 11px sans-serif'; label(`cheapest 3 h · avg ${fmt(best3.avg)}`, (Math.max(x0, left) + Math.min(x1, right)) / 2, y.top + 21, limCol.lo); }
+    }
+    g.restore();
+  },
+};
+
+// the line above the bars: the point under the pointer or finger, otherwise the current 15 minutes (instead of a box over the bars)
+function readout(items) {
+  const el = $('#readout');
+  if (!chart || !isBars(sty())) return;
+  const nowMs = Date.now();
+  if (!items) items = pointsAt(chart, nowMs);
+  const pr = items.find(i => i.dataset.kind === 'price');
+  if (!items.length || !pr) { el.innerHTML = '<span class="hint">Move over the bars, or drag a finger along them, to read a price.</span>'; return; }
+  const t = pr.raw.x, end = t + Math.max(bucket, 900) * 1000, isNow = t <= nowMs && nowMs < end, c = limitColor(pr.raw);
+  const kind = pr.dataset.borderDash ? 'estimate' : t > nowMs ? 'fixed' : 'published';
+  let h = `<b>${isNow ? 'Now · ' : ''}${dayFmt(t)} ${hm(t)}–${hm(end)}</b><span class="rp${c === limCol.hi ? ' hi' : c === limCol.lo ? ' lo' : ''}">${c === limCol.hi ? '▲ ' : c === limCol.lo ? '▼ ' : ''}${fmt(pr.raw.y)} c/kWh</span>` +
+    `<span>${kind}${bucket > 900 ? ', average' : ''}${pr.raw.hi > pr.raw.lo ? ` · ${fmt(pr.raw.lo)} – ${fmt(pr.raw.hi)}` : ''}</span>`;
+  const wd = items.find(i => i.dataset.kind === 'wind'), tp = items.find(i => i.dataset.kind === 'temp');
+  if (wd) h += `<span>wind ${Math.round(wd.raw.y).toLocaleString('en-GB')} MW</span>`;
+  if (tp) h += `<span>${tp.raw.y.toFixed(1)} °C</span>`;
+  if (showWx()) { const w = WX.summarize(WX.between(D.wx, t / 1000, end / 1000), bucket >= 86400); if (w) h += `<span>${WX.describe(w)} · ${Math.round(w.ms)} m/s</span>`; }
+  el.innerHTML = h;
+}
+
+// a cell or day coloured by how far it is past a limit (the heatmap and the calendar)
+const tint = (cls, v, amin, amax) => cls === 'mid' ? '' :
+  ` style="background:color-mix(in srgb,var(--${cls}) ${Math.round(55 + 45 * (cls === 'hi' ? (v - S.high) / (amax - S.high || 1) : (S.low - v) / (S.low - amin || 1)))}%,var(--card))"`;
 
 // ---------------------------------------------------------------- C heatmap: one row per day, the hourly average in each cell
 function renderHeat() {
@@ -702,9 +806,7 @@ function renderHeat() {
     for (let h = 0; h < 24; h++) {
       const t = new Date(d).setHours(h), p = cells.get(t);
       if (!p) { tr += '<td class="none"></td>'; continue; }
-      const v = +p.a.toFixed(2), hi = S.high_on && v >= S.high, lo = !hi && S.low_on && v <= S.low;
-      const f = hi ? (v - S.high) / (amax - S.high || 1) : lo ? (S.low - v) / (S.low - amin || 1) : 0, pct = Math.round(55 + 45 * f);
-      const bg = hi || lo ? ` style="background:color-mix(in srgb,var(--${hi ? 'hi' : 'lo'}) ${pct}%,var(--card))"` : '';
+      const v = +p.a.toFixed(2), hi = S.high_on && v >= S.high, lo = !hi && S.low_on && v <= S.low, bg = tint(hi ? 'hi' : lo ? 'lo' : 'mid', v, amin, amax);
       const tip = `${dayFmt(t)} ${hm(t)}–${hm(t + 36e5)} · avg ${fmt(p.y)} c/kWh` + (p.hi > p.lo ? ` (${fmt(p.lo)} – ${fmt(p.hi)})` : '') +
         ` · ${{ pub: 'published price', fix: 'published future price (fixed)', est: 'estimate (not fixed)' }[p.kind]}`;
       const cls = [hi ? 'hi' : lo ? 'lo' : 'mid', p.kind, t === now && 'now', sel != null && sel * 1000 >= t && sel * 1000 < t + 36e5 && 'on'].filter(Boolean).join(' ');
@@ -712,13 +814,8 @@ function renderHeat() {
     }
     rows.push(tr + '</tr>');
   }
-  $('#heat').innerHTML = `<thead>${head}</thead><tbody>${rows.join('')}</tbody>`;
+  return `<table id="heat"><thead>${head}</thead><tbody>${rows.join('')}</tbody></table>`;  // a cell picks its hour for the breakdown (Views.init)
 }
-$('#heat').onclick = e => {  // a cell picks that hour for the price breakdown
-  const td = e.target.closest('td[data-t]'); if (!td) return;
-  sel = td.dataset.t / 1000; renderBreakdown();
-  $$('#heat td.on').forEach(c => c.classList.remove('on')); td.classList.add('on');
-};
 
 // ---------------------------------------------------------------- weather row (icon, then wind m/s) and temperature
 const WX_ROW = 50;  // px under the time labels
@@ -795,13 +892,24 @@ function build() {
   $$('.prices-only').forEach(el => el.classList.toggle('hidden', tab !== 'prices'));
   $('.chartcard').classList.toggle('gridmode', tab === 'grid');
   $('.chartcard').classList.toggle('consmode', tab === 'consumption');
-  const st = sty(), bars = st === 'bars' || st === 'hourly', panel = bars && windOn;  // the bar charts put the wind power in its own panel
-  $('.chartcard').classList.toggle('heatmode', st === 'heat');
-  if (st === 'heat') {  // C: a table of hourly averages instead of the chart
+  const st = sty(), bars = isBars(st), panel = bars && windOn, html = HTML_VIEWS.includes(st), stat = STAT_VIEWS.includes(st);  // the bar charts put the wind power in its own panel
+  limCol = { hi: css('--hi'), lo: css('--lo') };
+  $('.chartcard').classList.toggle('htmlmode', html);
+  $('.chartcard').classList.toggle('statmode', stat);
+  $('.chartcard').classList.toggle('barmode', bars);
+  if (html) {  // C heatmap, D cheapest hours, F calendar: a table or list instead of the chart
     chart?.destroy(); chart = null;
     renderCards(); renderBreakdown();
-    $('#legend').textContent = '· one row per day, the hourly average (spot or total cost, with or without VAT, as chosen above) · red = at or above your high alarm limit, green = at or below your low limit (checked on the alarm basis), darker further past the limit' +
-      ' · violet underline = published future price (fixed) · italic = estimate (not fixed) · outlined = now · tap a cell for its price breakdown';
+    $('#legend').textContent = Views.legend(st);
+    bucket = null;
+    setView(view.min, view.max);
+    return status();
+  }
+  if (stat && typeof Chart !== 'undefined') {  // E typical day, G price vs wind: charts of the period without a time axis
+    chart?.destroy();
+    renderCards(); renderBreakdown();
+    chart = Views.makeChart(st, $('#chart'));
+    $('#legend').textContent = Views.legend(st);
     bucket = null;
     setView(view.min, view.max);
     return status();
@@ -819,19 +927,20 @@ function build() {
   renderCards(); renderBreakdown();
   Chart.Interaction.modes.step ||= stepMode;
   const grid = { color: css('--grid') }, ticks = { color: css('--muted') }, small = innerWidth < 600;
-  limCol = { hi: css('--hi'), lo: css('--lo') };
+  best3 = bars ? cheapest() : null;
   const datasets = series().map(d => ({ ...d, data: [], pointRadius: 0, borderWidth: d.borderWidth || (d.kind === 'wind' ? 1.5 : 2),
     stepped: d.kind === 'wind' || d.kind === 'temp' ? false : 'after', yAxisID: d.axis || { price: 'y', wind: 'y1', temp: 'y2' }[d.kind],
     ...d.kind === 'price' && (bars ? { showLine: false, backgroundColor: d.borderColor, borderDash: d.borderDash, pointHoverRadius: 3 }  // drawn as bars by priceBars
       : { segment: { borderColor: s => limitColor(s.chart.data.datasets[s.datasetIndex].data[s.p0DataIndex]) } }) }));  // a step takes the colour of its price
   const cons = tab === 'consumption';
   chart = new Chart($('#chart'), {
-    type: 'line', data: { datasets }, plugins: [overlay, weatherRow, ...bars ? [priceBars] : []],
+    type: 'line', data: { datasets }, plugins: [...bars ? [bands, priceBars, notes] : [], overlay, weatherRow],
     options: {
       responsive: true, maintainAspectRatio: false, animation: false, parsing: false, normalized: true,
       layout: { padding: { bottom: showWx() ? WX_ROW : 0 } },
       interaction: { mode: bars ? 'step' : 'x', intersect: false }, elements: { point: { hitRadius: 4 } },
       onClick: (evt, _, ch) => { sel = ch.scales.x.getValueForPixel(evt.x) / 1000; renderBreakdown(); ch.draw(); },
+      onHover: bars ? (evt, _, ch) => readout(evt.type === 'mouseout' ? null : stepMode(ch, evt)) : undefined,
       scales: {
         x: { type: 'time', grid, afterBuildTicks: sc => { sc.ticks = makeTicks(sc.min, sc.max, sc.width || 600); },
           ticks: { ...ticks, autoSkip: false, maxRotation: 0, callback: tickLabel } },
@@ -847,7 +956,7 @@ function build() {
       },
       plugins: {
         legend: { labels: { color: css('--fg'), boxWidth: 12, font: { size: small ? 10 : 12 } } },
-        tooltip: { events: tipEvents(), filter: (it, i, all) => all.findIndex(o => o.datasetIndex === it.datasetIndex) === i, callbacks: {
+        tooltip: { enabled: !bars, events: tipEvents(), filter: (it, i, all) => all.findIndex(o => o.datasetIndex === it.datasetIndex) === i, callbacks: {
           title: it => it.length ? `${dayFmt(it[0].parsed.x)} ${hm(it[0].parsed.x)}` + (bucket > 900 ? `–${hm(it[0].parsed.x + bucket * 1000)}` : '') : '',
           label: c => `${c.dataset.label}: ${c.parsed.y == null ? '–' : c.parsed.y.toFixed(c.dataset.kind === 'wind' ? 0 : c.dataset.kind === 'temp' ? 1 : 2)}` +
             (st === 'hourly' && c.raw.hi > c.raw.lo ? ` (${fmt(c.raw.lo)} – ${fmt(c.raw.hi)})` : ''),
@@ -865,10 +974,10 @@ function build() {
     ? (D.consumption.length ? `· violet = your consumption, kWh per bar (one bar = the Resolution, longer when zoomed out) · line = price (${NAMES[mode]}, ${vat ? 'incl.' : 'excl.'} VAT) · tap a bar for its cost` : '')
     : tab === 'compare'
     ? '· solid = published day-ahead price · dashed = estimate made before the price was published'
-    : bars ? `· ${st === 'hourly' ? 'hourly average bars, the pale bar behind each is the lowest to highest price in that hour' : 'one bar per interval of the Resolution (15 min when zoomed in)'}` +
-      ' · charcoal (or your Price line colour) = published price up to now · violet = published future price (fixed) · pale orange = estimate (not fixed)' + (windOn ? ' · wind power MW in its own panel below' : '') +
-      (showTemp() ? ' · dotted = temperature °C, red above 0, blue below' : '') + (showWx() ? ` · under the time: weather and wind m/s in ${S.wx_place}` : '')
-    : '· charcoal (or your Price line colour) = published price up to now · violet = published future price (fixed) · orange dashed = estimate (not fixed)' + (windOn ? ' · yellow = wind power MW' : '') +
+    : `· ${st === 'hourly' ? 'hourly average bars, the pale bar behind each is the lowest to highest price in that hour' : 'one bar per interval of the Resolution (15 min when zoomed in)'}` +
+      ' · charcoal (or your Price colour) = published price, paler once it has passed · violet = published future price (fixed) · pale orange = estimate (not fixed)' +
+      ' · ▲ / ▼ = past your high / low limit · prices are written on the bars when zoomed in · green band = cheapest 3 h · the top row sums up each day' +
+      (nightBands() ? ` · shaded = night transfer rate (${S.night_start}–${S.night_end})` : '') + (windOn ? ' · wind power MW in its own panel below' : '') +
       (showTemp() ? ' · dotted = temperature °C, red above 0, blue below' : '') + (showWx() ? ` · under the time: weather and wind m/s in ${S.wx_place}` : '');
   if (!cons) $('#legend').textContent += bars ? ' · a bar is red where the price is at or above your high alarm limit and green at or below your low limit (checked on the alarm basis)' : ' · the price curve is red where the price is at or above your high alarm limit and green at or below your low limit (checked on the alarm basis)';
   bucket = null;
@@ -886,7 +995,7 @@ function yRange() {
   if (!isFinite(lo)) return [0, 10];
   if (showThr()) for (const k of ['high', 'low']) if (S[k + '_on']) { lo = Math.min(lo, S[k]); hi = Math.max(hi, S[k]); }
   const pad = (hi - lo) * 0.08 || 1;
-  return [Math.min(0, lo - pad), hi + pad];
+  return [Math.min(0, lo - pad), hi + pad + (isBars(sty()) ? (hi - Math.min(0, lo)) * .14 : 0)];  // the bars: room for the day summaries on top
 }
 function averages() {  // time-weighted averages of the visible past, fixed-future and estimated prices
   if (tab === 'consumption') return [];  // the info line has the averages of the used electricity
@@ -906,10 +1015,16 @@ function visible(rows) { const a = view.min / 1000, b = view.max / 1000; return 
 
 function update() {
   if (tab === 'grid' && view) { GridView.render(); $('#from').value = isoDate(view.min); $('#to').value = isoDate(view.max - 1); return; }
-  const st = sty(), bars = st === 'bars' || st === 'hourly';
-  if (st === 'heat' && view) {  // C: the heatmap table, always hourly
-    bucket = 3600; avgs = averages(); renderHeat(); syncScroll(); info();
-    $('#from').value = isoDate(view.min); $('#to').value = isoDate(view.max - 1); return;
+  const st = sty(), bars = isBars(st), dates = () => { $('#from').value = isoDate(view.min); $('#to').value = isoDate(view.max - 1); };
+  if (HTML_VIEWS.includes(st) && view) {  // C heatmap, D cheapest hours, F calendar
+    bucket = st === 'calendar' ? 86400 : 3600; avgs = averages();
+    $('#htmlview').innerHTML = st === 'heat' ? renderHeat() : Views[st]();
+    syncScroll(); info(); return dates();
+  }
+  if (STAT_VIEWS.includes(st) && view) {  // E typical day, G price vs wind: the published hours of the period
+    if (!chart) return;
+    bucket = 3600; avgs = averages(); Views.updateChart(st, chart);
+    syncScroll(); info(); return dates();
   }
   if (!chart || !view) return;
   const W = chart.chartArea?.width || 600, span = view.max - view.min;
@@ -946,8 +1061,8 @@ function update() {
     Object.assign(chart.options.scales.y2, { min: chart.options.scales.y1.stack ? hi - (hi - lo) * 4 / 3 : lo, max: hi });  // keep the temperature above the wind panel
   }
   chart.update('none');
-  syncScroll(); info();
-  $('#from').value = isoDate(view.min); $('#to').value = isoDate(view.max - 1);
+  syncScroll(); info(); readout();
+  dates();
 }
 
 function info() {
@@ -973,6 +1088,7 @@ function info() {
     f.forEach((v, x) => { if (a.has(x)) { n++; err += Math.abs(v - a.get(x)); bias += v - a.get(x); } });
     t += n ? ` · estimate error avg ${fmt(err / n)} c/kWh, bias ${bias >= 0 ? '+' : ''}${fmt(bias / n)} (${n} h)` : ' · no estimates recorded for this period yet';
   }
+  if (STAT_VIEWS.includes(sty())) t = t.replace(/^Resolution [^·]*/, 'Hourly prices of the period ') + Views.info();
   $('#info').textContent = t;
 }
 
@@ -1008,19 +1124,22 @@ $('#vscroll').addEventListener('scroll', ({ target: v }) => {
 const cv = $('#chart'), pxToMs = px => px / chart.chartArea.width * (view.max - view.min);
 const centerOf = clientX => chart.scales.x.getValueForPixel(clientX - cv.getBoundingClientRect().left);
 cv.addEventListener('wheel', e => {  // trackpad pinch arrives as ctrl+wheel (Chrome, Edge, Firefox)
-  if (!chart) return;
+  if (!panZoom()) return;
   if (e.ctrlKey) { e.preventDefault(); zoomX(Math.exp(e.deltaY * 0.01), centerOf(e.clientX)); }
   else if (Math.abs(e.deltaX) > Math.abs(e.deltaY)) { e.preventDefault(); const d = pxToMs(e.deltaX); setView(view.min + d, view.max + d); }
 }, { passive: false });
 let g0 = null, t0 = null;  // Safari trackpad pinch uses gesture events
 cv.addEventListener('gesturestart', e => {
+  if (!panZoom()) return;
   e.preventDefault(); if (t0) return;
   const c = centerOf(e.clientX); g0 = { span: view.max - view.min, c, r: (c - view.min) / (view.max - view.min) };
 });
-cv.addEventListener('gesturechange', e => { e.preventDefault(); if (g0 && !t0) zoomTo(g0.span / e.scale, g0.c, g0.r); });
-cv.addEventListener('gestureend', e => { e.preventDefault(); g0 = null; });
+cv.addEventListener('gesturechange', e => { if (!g0) return; e.preventDefault(); if (!t0) zoomTo(g0.span / e.scale, g0.c, g0.r); });
+cv.addEventListener('gestureend', e => { if (g0) e.preventDefault(); g0 = null; });
+cv.addEventListener('mouseleave', () => readout());  // back to now
 const tdist = t => Math.hypot(t[0].clientX - t[1].clientX, t[0].clientY - t[1].clientY);
 cv.addEventListener('touchstart', e => {  // phone/tablet: pinch to zoom, drag sideways to pan
+  if (!panZoom()) { t0 = null; return; }
   const t = e.touches, s = view.max - view.min;
   if (t.length === 2) { const c = centerOf((t[0].clientX + t[1].clientX) / 2); t0 = { n: 2, d: tdist(t), s, c, r: (c - view.min) / s }; }
   else if (t.length === 1) t0 = { n: 1, x: t[0].clientX, y: t[0].clientY, min: view.min, s };
@@ -1042,12 +1161,7 @@ function renderCards() {
   const stats = rows => { if (!rows.length) return null; const v = rows.map(val); return { avg: v.reduce((x, y) => x + y) / v.length, min: Math.min(...v), max: Math.max(...v) }; };
   const cur = a.filter(r => r[0] <= now).at(-1);
   const today = stats(a.filter(r => r[0] >= t0 && r[0] < t1)), tom = stats(a.filter(r => r[0] >= t1 && r[0] < t2));
-  const fut = a.filter(r => r[0] >= now - 900), step = fut.length > 1 ? fut[1][0] - fut[0][0] : 3600, n = Math.round(10800 / step);
-  let best = null;
-  for (let i = 0; i + n <= fut.length; i++) {
-    const avg = fut.slice(i, i + n).reduce((s, r) => s + val(r), 0) / n;
-    if (!best || avg < best.avg) best = { avg, ts: fut[i][0] };
-  }
+  const best = cheapest();
   const w = D.wind_actual.filter(r => r[0] <= now).at(-1) || D.wind.find(r => r[0] >= now - 3600);
   // the shown price (spot or total, with or without VAT) against the limits of the alarm bar
   const p = cur && val(cur), cls = p == null ? '' : S.high_on && p >= S.high ? 'hi' : S.low_on && p <= S.low ? 'lo' : '';
@@ -1061,6 +1175,7 @@ function renderCards() {
     card('tomorrow', 'Tomorrow avg', tom ? fmt(tom.avg) : '–', tom ? `${fmt(tom.min)} – ${fmt(tom.max)}` : 'published ~14:00') +
     card('cheap', 'Cheapest 3h', best ? hm(best.ts * 1000) : '–', best ? `avg ${fmt(best.avg)} c/kWh` : '') +
     card('wind', 'Wind', w ? Math.round(w[1]) : '–', 'MW' + (w ? ' · ' + hm(w[0] * 1000) : ''));
+  Views.helper();
 }
 const INFO = {
   now: 'Price of the current 15-minute slot: the spot price or your total cost (buttons above the chart), with or without VAT (checkbox).',
@@ -1100,6 +1215,7 @@ function status() {
 }
 
 GridView.init();
+Views.init();
 matchMedia('(prefers-color-scheme: dark)').addEventListener('change', build);
 let rz; addEventListener('resize', () => { clearTimeout(rz); rz = setTimeout(() => { bucket = null; update(); }, 250); });
 document.addEventListener('visibilitychange', () => !document.hidden && $('#main:not(.hidden)') && load());
