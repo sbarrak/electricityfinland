@@ -22,6 +22,8 @@ let D = null, S = {}, chart = null, filled = false, loadedDays = 60, bucket = nu
 let mode = store('mode') === 'spot' ? 'spot' : 'total', vat = store('vat') !== '0', avgOn = store('avg') === '1';
 let tab = 'prices', view = null, yZoom = 1, yPos = 0.5, touched = 0, sel = null;  // sel: chart point picked for the breakdown
 let tipOn = store('tip') !== '0';  // the box with the price of the touched chart point
+let chartStyle = ['bars', 'hourly', 'heat'].includes(store('style')) ? store('style') : 'line';  // Prices tab: line, A bars, B hourly + range, C heatmap
+const sty = () => tab === 'prices' ? chartStyle : 'line';  // the other tabs always draw lines
 let tempOn = store('temp') === '1', wxOn = store('wx') !== '0', windOn = store('wind') !== '0';  // temperature curve, weather row under the chart, wind power
 const tipEvents = () => tipOn ? ['mousemove', 'mouseout', 'click', 'touchstart', 'touchmove'] : [];  // no events: the box never opens (taps and drags still work)
 
@@ -384,6 +386,8 @@ const markTab = seg('tabs', tab, v => {
 const check = (id, cur, fn) => { $('#' + id).checked = cur; $('#' + id).onchange = e => fn(e.target.checked); };
 check('vat', vat, v => { vat = v; store('vat', v ? '1' : '0'); build(); });
 check('avg', avgOn, v => { avgOn = v; store('avg', v ? '1' : '0'); update(); });
+$('#style').value = chartStyle;
+$('#style').onchange = e => { store('style', chartStyle = e.target.value); build(); };
 check('tip', tipOn, v => {  // the box with the price of the touched point can cover most of the chart on a phone
   tipOn = v; store('tip', v ? '1' : '0');
   if (!chart) return;
@@ -491,12 +495,12 @@ const limitColor = p => p?.a == null || tab === 'consumption' ? undefined
 const bucketStart = (ts, b) => { const off = -new Date(ts * 1000).getTimezoneOffset() * 60; return Math.floor((ts + off) / b) * b - off; };
 
 function agg(rows, b, f, tail, g) {  // [[ts, v]] -> [{x, y}] averaged per bucket of b seconds (local time); g: also average g(r) into .a
-  const out = []; let key = null, sum = 0, n = 0, sa = 0;
-  const push = () => n && out.push(g ? { x: key * 1000, y: sum / n, a: sa / n } : { x: key * 1000, y: sum / n });
+  const out = []; let key = null, sum = 0, n = 0, sa = 0, lo = 0, hi = 0;  // with g, also the lowest and highest value in .lo / .hi
+  const push = () => n && out.push(g ? { x: key * 1000, y: sum / n, a: sa / n, lo, hi } : { x: key * 1000, y: sum / n });
   for (const r of rows) {
-    const k = b === 900 ? r[0] : bucketStart(r[0], b);
-    if (k !== key) { push(); key = k; sum = 0; n = 0; sa = 0; }
-    sum += f(r); n++; if (g) sa += g(r);
+    const k = b === 900 ? r[0] : bucketStart(r[0], b), v = f(r);
+    if (k !== key) { push(); key = k; sum = 0; n = 0; sa = 0; lo = hi = v; }
+    sum += v; n++; if (g) { sa += g(r); lo = Math.min(lo, v); hi = Math.max(hi, v); }
   }
   push();
   if (tail && out.length) out.push({ ...out.at(-1), x: out.at(-1).x + (out.length > 1 ? out.at(-1).x - out.at(-2).x : b * 1000) });
@@ -587,8 +591,8 @@ function tickLabel(value, i, ticks) {
 const overlay = {
   id: 'overlay', afterDatasetsDraw(c) {
     const { left, right, top, bottom } = c.chartArea, g = c.ctx, x = c.scales.x, y = c.scales.y;
-    const hline = (v, color, label) => {
-      const py = y.getPixelForValue(v); if (py < top || py > bottom) return;
+    const hline = (v, color, label) => {  // limit lines and averages stay in the price panel (above the wind panel of the bar charts)
+      const py = y.getPixelForValue(v); if (py < y.top || py > y.bottom) return;
       g.strokeStyle = g.fillStyle = color; g.setLineDash([4, 4]); g.beginPath(); g.moveTo(left, py); g.lineTo(right, py); g.stroke();
       if (label) {
         g.setLineDash([]); g.font = '600 12px sans-serif';
@@ -615,13 +619,13 @@ const overlay = {
       g.font = '600 12px sans-serif';
       for (const a of avgs) {
         const py = y.getPixelForValue(a.v), x0 = Math.max(left, x.getPixelForValue(a.x0)), x1 = Math.min(right, x.getPixelForValue(a.x1));
-        if (py < top || py > bottom || x1 <= x0) continue;
+        if (py < y.top || py > y.bottom || x1 <= x0) continue;
         g.strokeStyle = a.color; g.lineWidth = 2; g.setLineDash([6, 3]);
         g.beginPath(); g.moveTo(x0, py); g.lineTo(x1, py); g.stroke();
         const text = `${a.name} ${fmt(a.v)}`, w = g.measureText(text).width + 14;
         let lx = Math.min(Math.max(x0 + 4, left + 4), right - w - 4), ly = py - 19;
         while (placed.some(p => lx < p.x + p.w && lx + w > p.x && ly < p.y + 17 && ly + 17 > p.y)) ly -= 19;
-        if (ly < top) ly = Math.min(bottom - 17, py + 3 + placed.filter(p => p.y > py).length * 19);
+        if (ly < y.top) ly = Math.min(y.bottom - 17, py + 3 + placed.filter(p => p.y > py).length * 19);
         placed.push({ x: lx, y: ly, w });
         g.setLineDash([]); g.fillStyle = '#fde047'; g.fillRect(lx, ly, w, 17);
         g.fillStyle = a.color; g.fillRect(lx, ly, 4, 17);
@@ -637,6 +641,83 @@ const overlay = {
     if (nx > left && nx < right) { g.setLineDash([]); g.strokeStyle = css('--fg'); g.beginPath(); g.moveTo(nx, top); g.lineTo(nx, bottom); g.stroke(); }
     g.restore();
   },
+};
+
+// ---------------------------------------------------------------- A bars and B hourly bars with their range
+const fade = (c, a) => {  // any CSS colour with opacity a (canvas cannot fade a colour by itself)
+  const g = fade.g ||= document.createElement('canvas').getContext('2d');
+  g.fillStyle = '#000'; g.fillStyle = c; const s = g.fillStyle;
+  if (s[0] === '#') { const n = parseInt(s.slice(1), 16); return `rgba(${n >> 16},${n >> 8 & 255},${n & 255},${a})`; }
+  return s.replace(/rgba?\(([^)]+)\)/, (m, p) => `rgba(${p.split(',').slice(0, 3).join(',')},${a})`);
+};
+const barColor = (d, p) => { const c = limitColor(p) || d.borderColor; return d.borderDash ? fade(c, .5) : c; };  // the estimate is paler
+const priceBars = {  // one bar per point of each price dataset, from 0 to the price, as wide as its interval; B also gets the lowest-to-highest range
+  id: 'priceBars', beforeDatasetsDraw(c) {
+    const x = c.scales.x, y = c.scales.y, g = c.ctx, hourly = sty() === 'hourly';
+    const base = Math.min(Math.max(y.getPixelForValue(0), y.top), y.bottom), cap = Math.max(bucket * 1000, 36e5) * 1.1;
+    g.save(); g.beginPath(); g.rect(c.chartArea.left, y.top, c.chartArea.right - c.chartArea.left, y.bottom - y.top); g.clip();
+    c.data.datasets.forEach((d, i) => {
+      if (d.kind !== 'price' || !c.isDatasetVisible(i)) return;
+      const pts = d.data;
+      for (let k = 0; k < pts.length; k++) {
+        const p = pts[k], n = pts[k + 1], w = n && n.x - p.x <= cap ? n.x - p.x : Math.min(k ? p.x - pts[k - 1].x : bucket * 1000, cap);
+        if (p.y == null || p.x + w < x.min || p.x > x.max) continue;
+        let x0 = x.getPixelForValue(p.x), x1 = x.getPixelForValue(p.x + w);
+        const gap = hourly ? Math.min(3, (x1 - x0) * .18) : (x1 - x0 > 4 ? .5 : 0);  // B: separate bars, A: touching columns
+        x0 += gap / 2; x1 -= gap / 2;
+        const col = barColor(d, p);
+        if (hourly && p.hi > p.lo) {
+          const a = y.getPixelForValue(p.hi), b = Math.max(y.getPixelForValue(p.lo), a + 1);
+          g.fillStyle = fade(col, .3); g.fillRect(x0, Math.min(a, base), x1 - x0, Math.max(b, base) - Math.min(a, base));
+        }
+        const py = y.getPixelForValue(p.y);
+        g.fillStyle = col; g.fillRect(x0, Math.min(py, base), Math.max(x1 - x0, 1), Math.abs(base - py));
+      }
+    });
+    g.restore();
+  },
+};
+function stepMode(c, e) {  // the bars: each dataset's point whose interval holds the pointer (the default mode needs the pointer near a point)
+  const v = c.scales.x.getValueForPixel(Chart.helpers.getRelativePosition(e, c).x), out = [];
+  c.data.datasets.forEach((d, i) => {
+    if (!c.isDatasetVisible(i)) return;
+    const pts = d.data; let lo = 0, hi = pts.length - 1, k = -1;
+    while (lo <= hi) { const m = (lo + hi) >> 1; if (pts[m].x <= v) { k = m; lo = m + 1; } else hi = m - 1; }
+    if (k >= 0 && pts[k].y != null && v - pts[k].x <= Math.max(bucket * 1000, 36e5) * 1.1) out.push({ element: c.getDatasetMeta(i).data[k], datasetIndex: i, index: k });
+  });
+  return out;
+}
+
+// ---------------------------------------------------------------- C heatmap: one row per day, the hourly average in each cell
+function renderHeat() {
+  const la = lastActual(), now = bucketStart(Math.floor(Date.now() / 1000), 3600) * 1000, a = view.min / 1000 - 3600, b = view.max / 1000 + 3600;
+  const cells = new Map(), part = rows => rows.filter(r => r[0] >= a && r[0] < b);
+  agg(part(D.forecast.filter(r => r[0] > la)), 3600, val, false, alarmVal).forEach(p => cells.set(p.x, { ...p, kind: 'est' }));
+  agg(part(D.actual), 3600, val, false, alarmVal).forEach(p => cells.set(p.x, { ...p, kind: p.x > now ? 'fix' : 'pub' }));
+  const al = [...cells.values()].map(p => +p.a.toFixed(2)), amax = Math.max(...al), amin = Math.min(...al);
+  const head = '<tr><th></th>' + Array.from({ length: 24 }, (_, h) => `<th>${h % 3 ? '' : String(h).padStart(2, '0')}</th>`).join('') + '</tr>';
+  const rows = [], d = new Date(view.min); d.setHours(0, 0, 0, 0);
+  for (let i = 0; +d < view.max && i < 1100; i++, d.setDate(d.getDate() + 1)) {
+    let tr = `<tr><th>${WD[d.getDay()]} <span>${d.getDate()}.${d.getMonth() + 1}.</span></th>`;
+    for (let h = 0; h < 24; h++) {
+      const t = new Date(d).setHours(h), p = cells.get(t);
+      if (!p) { tr += '<td class="none"></td>'; continue; }
+      const v = +p.a.toFixed(2), hi = S.high_on && v >= S.high, lo = !hi && S.low_on && v <= S.low;
+      const f = hi ? (v - S.high) / (amax - S.high || 1) : lo ? (S.low - v) / (S.low - amin || 1) : 0, pct = Math.round(55 + 45 * f);
+      const bg = hi || lo ? ` style="background:color-mix(in srgb,var(--${hi ? 'hi' : 'lo'}) ${pct}%,var(--card))"` : '';
+      const tip = `${dayFmt(t)} ${hm(t)}–${hm(t + 36e5)} · avg ${fmt(p.y)} c/kWh` + (p.hi > p.lo ? ` (${fmt(p.lo)} – ${fmt(p.hi)})` : '') +
+        ` · ${{ pub: 'published price', fix: 'published future price (fixed)', est: 'estimate (not fixed)' }[p.kind]}`;
+      const cls = [hi ? 'hi' : lo ? 'lo' : 'mid', p.kind, t === now && 'now', sel != null && sel * 1000 >= t && sel * 1000 < t + 36e5 && 'on'].filter(Boolean).join(' ');
+      tr += `<td class="${cls}" data-t="${t}" title="${tip}"${bg}>${Math.round(p.y)}</td>`;
+    }
+    rows.push(tr + '</tr>');
+  }
+  $('#heat').innerHTML = `<thead>${head}</thead><tbody>${rows.join('')}</tbody>`;
+}
+$('#heat').onclick = e => {  // a cell picks that hour for the price breakdown
+  const td = e.target.closest('td[data-t]'); if (!td) return;
+  sel = td.dataset.t / 1000; renderBreakdown();
+  $$('#heat td.on').forEach(c => c.classList.remove('on')); td.classList.add('on');
 };
 
 // ---------------------------------------------------------------- weather row (icon, then wind m/s) and temperature
@@ -714,6 +795,17 @@ function build() {
   $$('.prices-only').forEach(el => el.classList.toggle('hidden', tab !== 'prices'));
   $('.chartcard').classList.toggle('gridmode', tab === 'grid');
   $('.chartcard').classList.toggle('consmode', tab === 'consumption');
+  const st = sty(), bars = st === 'bars' || st === 'hourly', panel = bars && windOn;  // the bar charts put the wind power in its own panel
+  $('.chartcard').classList.toggle('heatmode', st === 'heat');
+  if (st === 'heat') {  // C: a table of hourly averages instead of the chart
+    chart?.destroy(); chart = null;
+    renderCards(); renderBreakdown();
+    $('#legend').textContent = '· one row per day, the hourly average (spot or total cost, with or without VAT, as chosen above) · red = at or above your high alarm limit, green = at or below your low limit (checked on the alarm basis), darker further past the limit' +
+      ' · violet underline = published future price (fixed) · italic = estimate (not fixed) · outlined = now · tap a cell for its price breakdown';
+    bucket = null;
+    setView(view.min, view.max);
+    return status();
+  }
   if (tab === 'grid') {  // the table instead of the chart (grid.js)
     chart?.destroy(); chart = null;
     renderCards(); renderBreakdown();
@@ -725,25 +817,31 @@ function build() {
   if (typeof Chart === 'undefined') { renderCards(); status(); return fatal('The chart library could not be loaded. Check the internet connection and reload.'); }
   chart?.destroy();
   renderCards(); renderBreakdown();
+  Chart.Interaction.modes.step ||= stepMode;
   const grid = { color: css('--grid') }, ticks = { color: css('--muted') }, small = innerWidth < 600;
   limCol = { hi: css('--hi'), lo: css('--lo') };
   const datasets = series().map(d => ({ ...d, data: [], pointRadius: 0, borderWidth: d.borderWidth || (d.kind === 'wind' ? 1.5 : 2),
     stepped: d.kind === 'wind' || d.kind === 'temp' ? false : 'after', yAxisID: d.axis || { price: 'y', wind: 'y1', temp: 'y2' }[d.kind],
-    ...d.kind === 'price' && { segment: { borderColor: s => limitColor(s.chart.data.datasets[s.datasetIndex].data[s.p0DataIndex]) } } }));  // a step takes the colour of its price
+    ...d.kind === 'price' && (bars ? { showLine: false, backgroundColor: d.borderColor, borderDash: d.borderDash, pointHoverRadius: 3 }  // drawn as bars by priceBars
+      : { segment: { borderColor: s => limitColor(s.chart.data.datasets[s.datasetIndex].data[s.p0DataIndex]) } }) }));  // a step takes the colour of its price
   const cons = tab === 'consumption';
   chart = new Chart($('#chart'), {
-    type: 'line', data: { datasets }, plugins: [overlay, weatherRow],
+    type: 'line', data: { datasets }, plugins: [overlay, weatherRow, ...bars ? [priceBars] : []],
     options: {
       responsive: true, maintainAspectRatio: false, animation: false, parsing: false, normalized: true,
       layout: { padding: { bottom: showWx() ? WX_ROW : 0 } },
-      interaction: { mode: 'x', intersect: false }, elements: { point: { hitRadius: 4 } },
+      interaction: { mode: bars ? 'step' : 'x', intersect: false }, elements: { point: { hitRadius: 4 } },
       onClick: (evt, _, ch) => { sel = ch.scales.x.getValueForPixel(evt.x) / 1000; renderBreakdown(); ch.draw(); },
       scales: {
         x: { type: 'time', grid, afterBuildTicks: sc => { sc.ticks = makeTicks(sc.min, sc.max, sc.width || 600); },
           ticks: { ...ticks, autoSkip: false, maxRotation: 0, callback: tickLabel } },
-        y: { grid, ticks: { ...ticks, callback: v => +v.toFixed(cons ? 2 : 1) }, title: { display: !small, text: cons ? 'kWh' : 'c/kWh', color: ticks.color } },
-        y1: { display: tab !== 'compare' && (cons || windOn), position: 'right', min: cons ? undefined : 0, grid: { display: false }, ticks,
-          title: { display: !small, text: cons ? 'c/kWh' : 'MW', color: ticks.color } },
+        y: { grid, ticks: { ...ticks, callback: v => +v.toFixed(cons ? 2 : 1) }, title: { display: !small, text: cons ? 'kWh' : 'c/kWh', color: ticks.color },
+          ...panel && { stack: 'p', stackWeight: 3, weight: 1 } },  // weight: the price panel above the wind panel
+        y1: panel ? { position: 'left', stack: 'p', stackWeight: 1, min: 0, grid, ticks: { ...ticks, maxTicksLimit: 4,
+            callback(v, i, t) { return i === t.length - 1 ? '' : Chart.Ticks.formatters.numeric.call(this, v, i, t); } },  // its top label would touch the lowest price
+          title: { display: !small, text: 'wind MW', color: ticks.color } }
+          : { display: tab !== 'compare' && (cons || windOn), position: 'right', min: cons ? undefined : 0, grid: { display: false }, ticks,
+            title: { display: !small, text: cons ? 'c/kWh' : 'MW', color: ticks.color } },
         y2: { display: showTemp(), position: 'right', grid: { display: false }, ticks: { color: TEMP.warm, callback: v => +v.toFixed(1) + '°' },
           title: { display: !small, text: '°C', color: TEMP.warm } },
       },
@@ -751,7 +849,8 @@ function build() {
         legend: { labels: { color: css('--fg'), boxWidth: 12, font: { size: small ? 10 : 12 } } },
         tooltip: { events: tipEvents(), filter: (it, i, all) => all.findIndex(o => o.datasetIndex === it.datasetIndex) === i, callbacks: {
           title: it => it.length ? `${dayFmt(it[0].parsed.x)} ${hm(it[0].parsed.x)}` + (bucket > 900 ? `–${hm(it[0].parsed.x + bucket * 1000)}` : '') : '',
-          label: c => `${c.dataset.label}: ${c.parsed.y == null ? '–' : c.parsed.y.toFixed(c.dataset.kind === 'wind' ? 0 : c.dataset.kind === 'temp' ? 1 : 2)}`,
+          label: c => `${c.dataset.label}: ${c.parsed.y == null ? '–' : c.parsed.y.toFixed(c.dataset.kind === 'wind' ? 0 : c.dataset.kind === 'temp' ? 1 : 2)}` +
+            (st === 'hourly' && c.raw.hi > c.raw.lo ? ` (${fmt(c.raw.lo)} – ${fmt(c.raw.hi)})` : ''),
           footer: it => {
             const k = it.find(i => i.dataset.kind === 'kwh'), e = k && costs.get(k.parsed.x);
             if (e) return `Cost ${e.eur.toFixed(2)} €${e.missing ? ' (some hours have no price)' : ''}`;
@@ -766,9 +865,12 @@ function build() {
     ? (D.consumption.length ? `· violet = your consumption, kWh per bar (one bar = the Resolution, longer when zoomed out) · line = price (${NAMES[mode]}, ${vat ? 'incl.' : 'excl.'} VAT) · tap a bar for its cost` : '')
     : tab === 'compare'
     ? '· solid = published day-ahead price · dashed = estimate made before the price was published'
+    : bars ? `· ${st === 'hourly' ? 'hourly average bars, the pale bar behind each is the lowest to highest price in that hour' : 'one bar per interval of the Resolution (15 min when zoomed in)'}` +
+      ' · charcoal (or your Price line colour) = published price up to now · violet = published future price (fixed) · pale orange = estimate (not fixed)' + (windOn ? ' · wind power MW in its own panel below' : '') +
+      (showTemp() ? ' · dotted = temperature °C, red above 0, blue below' : '') + (showWx() ? ` · under the time: weather and wind m/s in ${S.wx_place}` : '')
     : '· charcoal (or your Price line colour) = published price up to now · violet = published future price (fixed) · orange dashed = estimate (not fixed)' + (windOn ? ' · yellow = wind power MW' : '') +
       (showTemp() ? ' · dotted = temperature °C, red above 0, blue below' : '') + (showWx() ? ` · under the time: weather and wind m/s in ${S.wx_place}` : '');
-  if (!cons) $('#legend').textContent += ' · the price curve is red where the price is at or above your high alarm limit and green at or below your low limit (checked on the alarm basis)';
+  if (!cons) $('#legend').textContent += bars ? ' · a bar is red where the price is at or above your high alarm limit and green at or below your low limit (checked on the alarm basis)' : ' · the price curve is red where the price is at or above your high alarm limit and green at or below your low limit (checked on the alarm basis)';
   bucket = null;
   setView(view.min, view.max);
   status();
@@ -777,7 +879,10 @@ function build() {
 function yRange() {
   let lo = Infinity, hi = -Infinity;
   for (const d of chart.data.datasets) if (d.yAxisID === 'y')
-    for (const p of d.data) if (p.y != null && p.x >= view.min - bucket * 1000 && p.x <= view.max) { lo = Math.min(lo, p.y); hi = Math.max(hi, p.y); }
+    for (const p of d.data) if (p.y != null && p.x >= view.min - bucket * 1000 && p.x <= view.max) {
+      lo = Math.min(lo, p.y); hi = Math.max(hi, p.y);
+      if (sty() === 'hourly' && p.hi != null) { lo = Math.min(lo, p.lo); hi = Math.max(hi, p.hi); }  // B: room for the range behind the bars
+    }
   if (!isFinite(lo)) return [0, 10];
   if (showThr()) for (const k of ['high', 'low']) if (S[k + '_on']) { lo = Math.min(lo, S[k]); hi = Math.max(hi, S[k]); }
   const pad = (hi - lo) * 0.08 || 1;
@@ -801,13 +906,19 @@ function visible(rows) { const a = view.min / 1000, b = view.max / 1000; return 
 
 function update() {
   if (tab === 'grid' && view) { GridView.render(); $('#from').value = isoDate(view.min); $('#to').value = isoDate(view.max - 1); return; }
+  const st = sty(), bars = st === 'bars' || st === 'hourly';
+  if (st === 'heat' && view) {  // C: the heatmap table, always hourly
+    bucket = 3600; avgs = averages(); renderHeat(); syncScroll(); info();
+    $('#from').value = isoDate(view.min); $('#to').value = isoDate(view.max - 1); return;
+  }
   if (!chart || !view) return;
   const W = chart.chartArea?.width || 600, span = view.max - view.min;
   let b = BUCKETS.find(x => span / 1000 / x <= W / 2) || 86400;
   if (tab === 'consumption') b = Math.max(b, D.consRes);  // never finer than the meter readings
+  if (st === 'hourly') b = Math.max(b, 3600);  // B: hourly averages (longer when zoomed out)
   if (b !== bucket) {
     bucket = b;
-    for (const d of chart.data.datasets) d.data = d.kind === 'kwh' ? aggSum(d.rows, b) : agg(d.rows, d.kind === 'temp' ? Math.max(b, 3600) : b, d.kind === 'price' ? val : r => r[1], d.kind === 'price', d.kind === 'price' && alarmVal);
+    for (const d of chart.data.datasets) d.data = d.kind === 'kwh' ? aggSum(d.rows, b) : agg(d.rows, d.kind === 'temp' ? Math.max(b, 3600) : b, d.kind === 'price' ? val : r => r[1], d.kind === 'price' && !bars, d.kind === 'price' && alarmVal);
     costs = new Map();
     if (tab === 'consumption') {
       chart.options.scales.y.title.text = `kWh per ${RES[b]}`;  // what each interval cost: kWh × its price (spot or total cost, with or without VAT, as chosen above)
@@ -821,7 +932,7 @@ function update() {
   }
   const markers = span / 1000 / b <= W / 14;  // few enough points in view: draw each data point
   for (const d of chart.data.datasets) {
-    d.pointRadius = markers ? 2.5 : 0;
+    d.pointRadius = markers && !(bars && d.kind === 'price') ? 2.5 : 0;
     d.pointBackgroundColor = d.kind === 'price' ? (c => limitColor(c.raw) || d.borderColor) : d.borderColor;
   }
   avgs = averages();
@@ -830,7 +941,10 @@ function update() {
   const h = (hi - lo) / yZoom, top = hi - yPos * (hi - lo - h);
   Object.assign(chart.options.scales.y, { min: top - h, max: top });
   const temps = chart.data.datasets.find(d => d.kind === 'temp')?.data.filter(p => p.x >= view.min - 36e5 && p.x <= view.max).map(p => p.y);
-  if (temps?.length) Object.assign(chart.options.scales.y2, { min: Math.floor(Math.min(...temps) - 1), max: Math.ceil(Math.max(...temps) + 1) });
+  if (temps?.length) {
+    const lo = Math.floor(Math.min(...temps) - 1), hi = Math.ceil(Math.max(...temps) + 1);
+    Object.assign(chart.options.scales.y2, { min: chart.options.scales.y1.stack ? hi - (hi - lo) * 4 / 3 : lo, max: hi });  // keep the temperature above the wind panel
+  }
   chart.update('none');
   syncScroll(); info();
   $('#from').value = isoDate(view.min); $('#to').value = isoDate(view.max - 1);

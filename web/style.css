@@ -268,3 +268,21 @@ button:disabled{opacity:.45;cursor:default}
 .swatches .auto i{background:linear-gradient(135deg,#1f2937 50%,#e5e7eb 50%)}
 dialog label.custom{display:flex;align-items:center;gap:6px;color:var(--fg)}
 dialog label.custom input{width:36px;height:28px;padding:0;border:0;background:none;cursor:pointer}
+/* v17: chart style (Prices tab): line, A bars, B hourly bars + range, C heatmap */
+.chartstyle{display:inline-flex;align-items:center;gap:6px}
+.chartcard.heatmode .plot,.chartcard.heatmode .chartopts,.chartcard.heatmode .yz{display:none}
+.chartcard:not(.heatmode) .heatonly{display:none}
+.heatwrap{overflow:auto;max-height:clamp(300px,55vh,560px);margin-top:4px;overscroll-behavior:contain;scrollbar-color:var(--line) transparent}
+#heat{border-collapse:separate;border-spacing:3px;width:100%;table-layout:fixed;font-variant-numeric:tabular-nums;font-size:.85em}
+#heat th{font-weight:500;color:var(--muted);font-size:.9em;text-align:left;white-space:nowrap;padding:0 2px}
+#heat thead th{position:sticky;top:0;background:var(--card);z-index:1}
+#heat th:first-child{width:5.6em}
+#heat tbody th{color:var(--fg)}
+#heat td{height:30px;text-align:center;border-radius:5px;background:var(--grid);cursor:pointer;padding:0;overflow:hidden}
+#heat td.none{background:none;border:1px dashed var(--line);cursor:default}
+#heat td.hi,#heat td.lo{color:#fff;font-weight:600}
+#heat td.fix{box-shadow:inset 0 -3px 0 var(--fixed)}
+#heat td.est{font-style:italic;opacity:.65}
+#heat td.now{outline:2px solid var(--fg);outline-offset:-1px}
+#heat td.on{outline:2px dashed var(--accent);outline-offset:-1px}
+@media (max-width:600px){#heat{border-spacing:1px;font-size:.7em}#heat th:first-child{width:3.2em}#heat tbody th{white-space:normal;line-height:1.1}#heat tbody th span{display:block}#heat td{height:26px;border-radius:3px}}
