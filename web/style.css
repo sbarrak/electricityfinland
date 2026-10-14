@@ -221,3 +221,14 @@ button:disabled{opacity:.45;cursor:default}
   #grid .rn{padding:0 2px}
   .gridbar .gsep{display:none}
 }
+/* v7: Consumption tab (consumption.js): imported kWh with its cost; import / delete buttons above the chart */
+:root{--cons:#7c3aed;--cons-bg:rgba(124,58,237,.18)}
+@media (prefers-color-scheme:dark){:root{--cons:#a78bfa;--cons-bg:rgba(167,139,250,.20)}}
+.chartcard:not(.consmode) .consonly{display:none}
+.consbar label.btn{display:inline-flex;align-items:center;min-height:36px;padding:4px 12px;border-radius:10px;border:1px solid var(--line);cursor:pointer;font-weight:600}
+.consbar .vh{position:absolute;width:1px;height:1px;min-height:0;padding:0;opacity:0;pointer-events:none}
+.consbar label.btn:focus-within{box-shadow:0 0 0 2px var(--accent)}
+.consbar button{min-height:36px;padding:4px 12px}
+.consbar #cnote{flex:1 1 240px}
+#chelp{margin:0 0 8px}
+#chelp summary{cursor:pointer;color:var(--accent)}
