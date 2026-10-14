@@ -541,13 +541,13 @@ function series() {
   const slot = Math.floor(Date.now() / 9e5) * 900;  // start of the current 15-min slot
   if (tab === 'consumption') return [
     { label: 'Consumption kWh', rows: D.consumption, kind: 'kwh', axis: 'y', borderColor: css('--cons'), backgroundColor: css('--cons-bg'), fill: 'origin' },
-    price(`Price (${NAMES[mode]}) c/kWh`, D.actual, css('--accent'), { axis: 'y1' }),
+    price(`Price (${NAMES[mode]}) c/kWh`, D.actual, priceCol(), { axis: 'y1' }),
   ].filter(d => d.rows.length);
   const list = tab === 'compare' ? [
-    price('Actual c/kWh', D.actual, css('--accent')),
+    price('Actual c/kWh', D.actual, priceCol()),
     price('Estimate before publish c/kWh', D.forecast.filter(r => r[0] <= la), css('--est'), { borderDash: [6, 4] }),
   ] : [
-    price('Price c/kWh', D.actual.filter(r => r[0] <= slot), css('--accent')),  // no shade under the prices: only the wind power is shaded
+    price('Price c/kWh', D.actual.filter(r => r[0] <= slot), priceCol()),  // no shade under the prices: only the wind power is shaded
     price('Fixed future price c/kWh', D.actual.filter(r => r[0] >= slot), css('--fixed')),
     price('Estimate (not fixed) c/kWh', D.forecast.filter(r => r[0] > la), css('--est'), { borderDash: [6, 4] }),
   ];
@@ -708,6 +708,7 @@ const weatherRow = {
 
 function build() {
   if (!D) return;
+  markColorBtn();
   PAL = WX.palette(); TEMP = { warm: css('--t-warm'), cold: css('--t-cold') }; wxCache = null;
   $('.plot').classList.toggle('wx', showWx());
   $$('.prices-only').forEach(el => el.classList.toggle('hidden', tab !== 'prices'));
@@ -762,10 +763,10 @@ function build() {
     },
   });
   $('#legend').textContent = cons
-    ? (D.consumption.length ? `· violet = your consumption, kWh per bar (one bar = the Resolution, longer when zoomed out) · blue = price (${NAMES[mode]}, ${vat ? 'incl.' : 'excl.'} VAT) · tap a bar for its cost` : '')
+    ? (D.consumption.length ? `· violet = your consumption, kWh per bar (one bar = the Resolution, longer when zoomed out) · line = price (${NAMES[mode]}, ${vat ? 'incl.' : 'excl.'} VAT) · tap a bar for its cost` : '')
     : tab === 'compare'
     ? '· solid = published day-ahead price · dashed = estimate made before the price was published'
-    : '· blue = published price up to now · violet = published future price (fixed) · orange dashed = estimate (not fixed)' + (windOn ? ' · yellow = wind power MW' : '') +
+    : '· charcoal (or your Price line colour) = published price up to now · violet = published future price (fixed) · orange dashed = estimate (not fixed)' + (windOn ? ' · yellow = wind power MW' : '') +
       (showTemp() ? ' · dotted = temperature °C, red above 0, blue below' : '') + (showWx() ? ` · under the time: weather and wind m/s in ${S.wx_place}` : '');
   if (!cons) $('#legend').textContent += ' · the price curve is red where the price is at or above your high alarm limit and green at or below your low limit (checked on the alarm basis)';
   bucket = null;
@@ -786,14 +787,14 @@ function averages() {  // time-weighted averages of the visible past, fixed-futu
   if (tab === 'consumption') return [];  // the info line has the averages of the used electricity
   const slot = Math.floor(Date.now() / 9e5) * 900, la = lastActual();
   const parts = tab === 'compare'
-    ? [['avg actual', D.actual, '--accent'], ['avg estimate', D.forecast.filter(r => r[0] <= la), '--est']]
-    : [['avg past', D.actual.filter(r => r[0] <= slot), '--accent'], ['avg fixed', D.actual.filter(r => r[0] > slot), '--fixed'],
+    ? [['avg actual', D.actual, '--price-line'], ['avg estimate', D.forecast.filter(r => r[0] <= la), '--est']]
+    : [['avg past', D.actual.filter(r => r[0] <= slot), '--price-line'], ['avg fixed', D.actual.filter(r => r[0] > slot), '--fixed'],
       ['avg estimate', D.forecast.filter(r => r[0] > la), '--est']];
   return parts.map(([name, rows, color]) => {
     const vis = visible(rows);
     let sw = 0, sv = 0, w = 0;
     vis.forEach((r, i) => { w = Math.min(3600, (vis[i + 1]?.[0] ?? r[0] + 900) - r[0]); sw += w; sv += val(r) * w; });
-    return sw && { name, color: css(color), v: sv / sw, x0: vis[0][0] * 1000, x1: (vis.at(-1)[0] + w) * 1000 };
+    return sw && { name, color: color === '--price-line' ? priceCol() : css(color), v: sv / sw, x0: vis[0][0] * 1000, x1: (vis.at(-1)[0] + w) * 1000 };
   }).filter(Boolean);
 }
 function visible(rows) { const a = view.min / 1000, b = view.max / 1000; return rows.filter(r => r[0] >= a && r[0] < b); }
@@ -990,3 +991,23 @@ let rz; addEventListener('resize', () => { clearTimeout(rz); rz = setTimeout(() 
 document.addEventListener('visibilitychange', () => !document.hidden && $('#main:not(.hidden)') && load());
 setInterval(() => $('#main:not(.hidden)') && load(), 5 * 60 * 1000);
 boot();
+
+// ---------------------------------------------------------------- price line colour (the box after Email alerts)
+const SWATCHES = [['', 'Default'], ['#000000', 'Black'], ['#1f2937', 'Charcoal'], ['#64748b', 'Slate'], ['#e5e7eb', 'Light grey'],
+  ['#1e3a8a', 'Navy'], ['#2563eb', 'Blue'], ['#0284c7', 'Sky'], ['#92400e', 'Brown'], ['#ca8a04', 'Gold']];  // no red / green: those are the limits
+const cdlg = $('#colorDialog');
+function priceCol() { return S.price_color || css('--price-line'); }
+function markColorBtn() { $('#lineColorBtn span').style.background = priceCol(); }
+async function setPriceColor(c) {
+  cdlg.close();
+  try { await putSettings({ price_color: c }); markColorBtn(); build(); flash('Saved ✓'); } catch (e) { flash('Not saved: ' + e.message); }
+}
+$('#swatches').innerHTML = SWATCHES.map(([c, n]) => `<button type="button" data-c="${c}"${c ? '' : ' class="auto"'} title="${n}${c ? ' ' + c : ': charcoal, light grey in dark mode'}"><i${c ? ` style="background:${c}"` : ''}></i>${n}</button>`).join('');
+$('#swatches').onclick = e => { const b = e.target.closest('[data-c]'); if (b) setPriceColor(b.dataset.c); };
+$('#customColor').onchange = e => setPriceColor(e.target.value);
+$('#colorCancel').onclick = () => cdlg.close();  // Esc closes the window too, without a change
+$('#lineColorBtn').onclick = () => {
+  $$('#swatches [data-c]').forEach(b => b.classList.toggle('on', b.dataset.c === (S.price_color || '')));
+  $('#customColor').value = /^#[0-9a-f]{6}$/i.test(S.price_color) ? S.price_color : '#1f2937';
+  cdlg.showModal();
+};
