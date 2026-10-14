@@ -22,7 +22,7 @@ let D = null, S = {}, chart = null, filled = false, loadedDays = 60, bucket = nu
 let mode = store('mode') === 'spot' ? 'spot' : 'total', vat = store('vat') !== '0', avgOn = store('avg') === '1';
 let tab = 'prices', view = null, yZoom = 1, yPos = 0.5, touched = 0, sel = null;  // sel: chart point picked for the breakdown
 let tipOn = store('tip') !== '0';  // the box with the price of the touched chart point
-let tempOn = store('temp') === '1', wxOn = store('wx') !== '0';  // temperature curve, weather row under the chart
+let tempOn = store('temp') === '1', wxOn = store('wx') !== '0', windOn = store('wind') !== '0';  // temperature curve, weather row under the chart, wind power
 const tipEvents = () => tipOn ? ['mousemove', 'mouseout', 'click', 'touchstart', 'touchmove'] : [];  // no events: the box never opens (taps and drags still work)
 
 // ---------------------------------------------------------------- settings form
@@ -394,6 +394,7 @@ check('tip', tipOn, v => {  // the box with the price of the touched point can c
 
 check('temp', tempOn, v => { tempOn = v; store('temp', v ? '1' : '0'); build(); });
 check('wx', wxOn, v => { wxOn = v; store('wx', v ? '1' : '0'); build(); });
+check('wind', windOn, v => { windOn = v; store('wind', v ? '1' : '0'); build(); });
 // imported consumption (Consumption tab): read the file, save it in parts, then show its period
 $('#cFile').onchange = async e => {
   const f = e.target.files[0], note = t => $('#cnote').textContent = t;
@@ -548,9 +549,10 @@ function series() {
     price('Price c/kWh', D.actual.filter(r => r[0] <= slot), css('--accent')),  // no shade under the prices: only the wind power is shaded
     price('Fixed future price c/kWh', D.actual.filter(r => r[0] >= slot), css('--fixed')),
     price('Estimate (not fixed) c/kWh', D.forecast.filter(r => r[0] > la), css('--est'), { borderDash: [6, 4] }),
-    { label: 'Wind forecast MW', rows: D.wind, kind: 'wind', borderColor: css('--wind'), backgroundColor: css('--wind-bg'), fill: 'origin', tension: .3 },
-    { label: 'Wind actual MW', rows: D.wind_actual, kind: 'wind', borderColor: css('--wind-act') },
   ];
+  if (windOn) list.push(
+    { label: 'Wind forecast MW', rows: D.wind, kind: 'wind', borderColor: css('--wind'), backgroundColor: css('--wind-bg'), fill: 'origin', tension: .3 },
+    { label: 'Wind actual MW', rows: D.wind_actual, kind: 'wind', borderColor: css('--wind-act') });
   if (showTemp()) list.push({ label: 'Temperature °C', rows: D.wx.map(w => [w.t, w.temp]), kind: 'temp', borderColor: tempColor, tension: .35, borderWidth: 2.5,
     borderDash: [1, 5], borderCapStyle: 'round' });  // dotted, so it does not look like a price line (the estimate is dashed)
   return list.filter(d => d.rows.length);
@@ -738,7 +740,7 @@ function build() {
         x: { type: 'time', grid, afterBuildTicks: sc => { sc.ticks = makeTicks(sc.min, sc.max, sc.width || 600); },
           ticks: { ...ticks, autoSkip: false, maxRotation: 0, callback: tickLabel } },
         y: { grid, ticks: { ...ticks, callback: v => +v.toFixed(cons ? 2 : 1) }, title: { display: !small, text: cons ? 'kWh' : 'c/kWh', color: ticks.color } },
-        y1: { display: tab !== 'compare', position: 'right', min: cons ? undefined : 0, grid: { display: false }, ticks,
+        y1: { display: tab !== 'compare' && (cons || windOn), position: 'right', min: cons ? undefined : 0, grid: { display: false }, ticks,
           title: { display: !small, text: cons ? 'c/kWh' : 'MW', color: ticks.color } },
         y2: { display: showTemp(), position: 'right', grid: { display: false }, ticks: { color: TEMP.warm, callback: v => +v.toFixed(1) + '°' },
           title: { display: !small, text: '°C', color: TEMP.warm } },
@@ -762,7 +764,7 @@ function build() {
     ? (D.consumption.length ? `· violet = your consumption, kWh per bar (one bar = the Resolution, longer when zoomed out) · blue = price (${NAMES[mode]}, ${vat ? 'incl.' : 'excl.'} VAT) · tap a bar for its cost` : '')
     : tab === 'compare'
     ? '· solid = published day-ahead price · dashed = estimate made before the price was published'
-    : '· blue = published price up to now · violet = published future price (fixed) · orange dashed = estimate (not fixed) · yellow = wind power MW' +
+    : '· blue = published price up to now · violet = published future price (fixed) · orange dashed = estimate (not fixed)' + (windOn ? ' · yellow = wind power MW' : '') +
       (showTemp() ? ' · dotted = temperature °C, red above 0, blue below' : '') + (showWx() ? ` · under the time: weather and wind m/s in ${S.wx_place}` : '');
   if (!cons) $('#legend').textContent += ' · where the limit lines show, the price curve is red at or above the high limit and green at or below the low limit';
   bucket = null;
