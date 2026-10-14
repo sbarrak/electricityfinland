@@ -1,16 +1,18 @@
 // Standalone mode: when index.html is opened by double-click (file://), this replaces the
-// Python backend (app/main.py) in the browser: fetching, alarms, notifications. Prices use
-// priceValue() from costs.js. Alarms only run while the page is open.
+// Python backend (app/main.py) in the browser: fetching, alarms, notifications, weather. Prices use
+// priceValue() from costs.js, weather rows WX.rowsOf() from weather.js. Alarms only run while the page is open.
 (() => {
   if (location.protocol !== 'file:') return;
   const NPF = 'https://raw.githubusercontent.com/vividfog/nordpool-predict-fi/main/deploy/';
   const HISTORY_DAYS = 366;  // forecasts and wind are kept this long
-  const MAX_HISTORY_DAYS = 2200;  // published prices are kept and can be loaded this far back on demand
+  const MAX_HISTORY_DAYS = 2200;  // published prices and weather are kept and can be loaded this far back on demand
+  const WX_FORECAST = 'https://api.open-meteo.com/v1/forecast', WX_ARCHIVE = 'https://archive-api.open-meteo.com/v1/archive';
+  const WX_GEO = 'https://geocoding-api.open-meteo.com/v1/search', FINLAND = [59.3, 70.2, 19.0, 31.7];
   const DEFAULTS = {
     vat: 25.5, margin: 0, transfer_day: 0, transfer_night: 0, night_start: 22, night_end: 7, tax: 2.827, other: 0,
     monthly_provider: 0, monthly_transfer: 0, monthly_kwh: 0, spread_monthly: false,
     alarm_basis: 'total', alarm_vat: true, high_on: true, high: 20, low_on: true, low: 2, summary_on: true, extra_time_1: '', extra_time_2: '', extra_time_3: '', ...MSG_DEFAULTS,
-    wa_on: true, email_on: true, recipients: [], alerts_v2: false,
+    wa_on: true, email_on: true, recipients: [], alerts_v2: false, wx_place: 'Helsinki', wx_lat: 60.1699, wx_lon: 24.9384,
     ejs_service: '', ejs_template: '', ejs_key: '', fingrid_key: '',
   };
   const get = (k, d) => { try { return JSON.parse(localStorage.getItem('elfi_' + k)) ?? d; } catch { return d; } };
@@ -19,6 +21,10 @@
   const db = Object.fromEntries(TABLES.map(t => [t, get(t, {})]));  // { ts: value }
   db.consumption = get('consumption', {});  // imported kWh per metering interval, never pruned
   const errors = {};
+  // weather of the picked place only (a year of hours fits easily): { loc, from: oldest start asked for, rows: { ts: [code, temp, ms, dir, cloud, mm, snow, day] } }
+  let wx = get('weather', { loc: '', from: 0, rows: {} });
+  const inFinland = (lat, lon) => lat >= FINLAND[0] && lat <= FINLAND[1] && lon >= FINLAND[2] && lon <= FINLAND[3];
+  const locOf = s => `${(+s.wx_lat).toFixed(3)},${(+s.wx_lon).toFixed(3)}`;
   const clean = r => ({ name: String(r.name || '').slice(0, 60), phone: String(r.phone || '').trim(), apikey: String(r.apikey || '').trim(),
     email: String(r.email || '').trim(), wa: !!r.wa, mail: !!r.mail });
   function settings() {
@@ -90,9 +96,34 @@
       r.data.forEach(x => db[t][tsOf(x.startTime)] = x.value);
     }
   }
+  const wxUrl = (base, loc, extra) => { const [lat, lon] = loc.split(','); return `${base}?latitude=${lat}&longitude=${lon}&hourly=${WX.VARS}` +
+    `&wind_speed_unit=ms&timeformat=unixtime&timezone=GMT&${new URLSearchParams(extra)}`; };
+  function wxPlace() {  // the stored weather belongs to the picked place; another place starts from nothing
+    const loc = locOf(settings());
+    if (wx.loc !== loc) wx = { loc, from: now(), rows: {} };
+    return loc;
+  }
+  async function fetchWeather() {  // the last 7 days and the next 16 days, newer model runs replace stored hours
+    const loc = wxPlace();
+    WX.rowsOf(await json(wxUrl(WX_FORECAST, loc, { past_days: 7, forecast_days: 16 }))).forEach(r => wx.rows[r[0]] = r.slice(1));
+  }
+  async function backfillWeather(days = HISTORY_DAYS) {  // older hours from the archive (only missing ones), as backfill_weather() in app/main.py
+    const loc = wxPlace(), keys = Object.keys(wx.rows).map(Number), first = keys.length ? Math.min(...keys) : now();
+    const start = now() - Math.min(days, MAX_HISTORY_DAYS) * 86400;
+    if (first - start < 2 * 86400 || start >= wx.from) return -1;
+    const day = t => new Date(t * 1000).toISOString().slice(0, 10);
+    let total = 0;
+    for (let end = first; end - start > 86400; end -= HISTORY_DAYS * 86400) {  // one request per year of data
+      const a = Math.max(start, end - HISTORY_DAYS * 86400);
+      WX.rowsOf(await json(wxUrl(WX_ARCHIVE, loc, { start_date: day(a), end_date: day(end) }))).forEach(r => { if (!(r[0] in wx.rows)) { wx.rows[r[0]] = r.slice(1); total++; } });
+    }
+    if (total) wx.from = start;
+    return total;
+  }
   function persist() {
     const cutoff = now() - (HISTORY_DAYS + 5) * 86400;  // published prices are kept
     TABLES.forEach(t => { if (t !== 'prices') for (const k in db[t]) if (+k < cutoff) delete db[t][k]; put(t, db[t]); });
+    put('weather', wx);  // weather is kept like the prices
   }
 
   // CallMeBot takes the text in the URL and cuts long texts: at most WA_CHUNK URL-encoded characters per part, split preferably
@@ -206,7 +237,7 @@
   const last = { p: 0, f: 0, h: 0 };
   let sending = false;
   async function refresh(fingrid = true) {
-    const out = { prices: await track('prices', fetchPrices), forecast: await track('forecast', fetchForecasts) };
+    const out = { prices: await track('prices', fetchPrices), forecast: await track('forecast', fetchForecasts), weather: await track('weather', fetchWeather) };
     if (fingrid) await track('fingrid', fetchFingrid);
     persist();
     return out;
@@ -215,8 +246,8 @@
     const t = now(), waiting = lastPrice() < midnight(2) / 1000 - 3600 && new Date().getHours() >= 13;
     let changed = false;
     if (t - last.p > (waiting ? 600 : 3600)) { last.p = t; await track('prices', fetchPrices); changed = true; }
-    if (t - last.f > 3600) { last.f = t; await track('forecast', fetchForecasts); await track('fingrid', fetchFingrid); changed = true; }
-    if (t - last.h > 86400) { last.h = t; await track('history', () => backfill()); changed = true; }
+    if (t - last.f > 3600) { last.f = t; await track('forecast', fetchForecasts); await track('fingrid', fetchFingrid); await track('weather', fetchWeather); changed = true; }
+    if (t - last.h > 86400) { last.h = t; await track('history', () => backfill()); await track('weather history', () => backfillWeather()); changed = true; }
     if (changed) { persist(); if (!document.querySelector('#main.hidden')) window.load?.(); }
     if (sending) return;  // a slow send must not be started a second time by the next tick
     sending = true;
@@ -230,7 +261,8 @@
     const s = settings(), start = now() - Math.max(1, Math.min(daysBack, MAX_HISTORY_DAYS)) * 86400;
     const fg = rows('wind_fg', start), fgEnd = fg.length ? fg.at(-1)[0] : 0;
     const wind = [...rows('wind_npf', start).filter(r => !fg.length || r[0] > fgEnd), ...fg].sort((a, b) => a[0] - b[0]);
-    return { actual: rows('prices', start), forecast: rows('forecast', start), wind, wind_actual: rows('wind_actual', start),
+    const weather = wx.loc === locOf(s) ? Object.entries(wx.rows).map(([k, v]) => [+k, ...v]).filter(r => r[0] >= start).sort((a, b) => a[0] - b[0]) : [];
+    return { actual: rows('prices', start), forecast: rows('forecast', start), wind, wind_actual: rows('wind_actual', start), weather,
       consumption: rows('consumption', start), settings: s, schedule: scheduleInfo(s), fingrid: !!s.fingrid_key, errors: Object.values(errors) };
   }
 
@@ -242,7 +274,26 @@
       const [p, q] = path.split('?'), body = opts.body ? JSON.parse(opts.body) : {};
       if (p === 'me') return { username: 'local', must_change: false };
       if (p === 'data') return data(+new URLSearchParams(q).get('days_back') || 60);
-      if (p === 'history') { const rows = await backfill(+body.days || 0); persist(); return { rows: rows }; }
+      if (p === 'history') {
+        const rows = await backfill(+body.days || 0);
+        let weather; try { weather = await backfillWeather(+body.days || 0); } catch (e) { weather = 'failed: ' + e.message; }
+        persist(); return { rows, weather };
+      }
+      if (p === 'places') {
+        const term = (new URLSearchParams(q).get('q') || '').trim();
+        if (term.length < 2) return [];
+        const r = await json(`${WX_GEO}?name=${encodeURIComponent(term.slice(0, 60))}&count=10&language=en&countryCode=FI&format=json`);
+        return (r.results || []).filter(x => x.country_code === 'FI' && inFinland(x.latitude, x.longitude))
+          .map(x => ({ name: x.name, area: x.admin1 || '', lat: x.latitude, lon: x.longitude }));
+      }
+      if (p === 'weather') {
+        const lat = +body.lat, lon = +body.lon, place = String(body.place || '').trim().slice(0, 80);
+        if (!inFinland(lat, lon) || !place) throw new Error('pick a place in Finland');
+        put('settings', { ...get('settings', {}), wx_place: place, wx_lat: lat, wx_lon: lon });
+        let weather = 'ok';
+        try { await fetchWeather(); await backfillWeather(); } catch (e) { weather = 'failed: ' + e.message; }
+        persist(); return { settings: settings(), weather };
+      }
       if (p === 'refresh') return body.auto && now() - last.p < 120 ? { prices: 'up to date' } : refresh(false);
       if (p === 'settings' && opts.method === 'PUT') {
         const s = settings();
