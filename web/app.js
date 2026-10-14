@@ -503,7 +503,7 @@ function build() {
   });
   $('#legend').textContent = tab === 'compare'
     ? '· solid = published day-ahead price · dashed = estimate made before the price was published'
-    : '· blue = published price up to now · green = published future price (fixed) · orange dashed = estimate (not fixed) · cyan = wind power MW';
+    : '· blue = published price up to now · violet = published future price (fixed) · orange dashed = estimate (not fixed) · cyan = wind power MW';
   $('#legend').textContent += ' · where the limit lines show, the price curve is red at or above the high limit and green at or below the low limit';
   bucket = null;
   setView(view.min, view.max);
