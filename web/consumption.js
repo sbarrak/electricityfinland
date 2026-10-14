@@ -22,6 +22,7 @@ const Consumption = (() => {
     return out;
   }
   const num = s => {  // "1 234,5" / "1234.5" / "0,123" -> number, anything else -> NaN
+    if (typeof s === 'number') return s;
     s = String(s ?? '').replace(/[\s ]/g, '');
     if (!/^[-+]?(\d+([.,]\d*)?|[.,]\d+)$/.test(s)) return NaN;
     return +s.replace(',', '.');
@@ -38,6 +39,11 @@ const Consumption = (() => {
 
   // a date (and maybe time) as written in the file -> { t: unix s, zoned: had an explicit zone, dateOnly }
   function parseTime(s) {
+    if (typeof s === 'number') {  // an Excel date: days since 30.12.1899, as wall-clock time
+      if (!(s > 20000 && s < 80000)) return null;
+      const d = new Date(Math.round((s - 25569) * 1440) * 6e4);
+      return { t: helsinki(d.getUTCFullYear(), d.getUTCMonth() + 1, d.getUTCDate(), d.getUTCHours(), d.getUTCMinutes()), dateOnly: s % 1 === 0 };
+    }
     s = String(s ?? '').trim().replace(/^klo\s*/i, '');
     let m = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})(?:[T ](\d{1,2})[:.](\d{2})(?:[:.](\d{2})(?:\.\d+)?)?)?\s*(Z|[+-]\d{2}:?\d{2})?$/i);
     if (m) {
@@ -53,15 +59,21 @@ const Consumption = (() => {
     return m && +m[1] < 25 ? +m[1] + (+(m[2] || 0)) / 60 : null;
   };
 
-  // text of a CSV file -> { rows: [[ts, kWh]] (start of each interval, sorted), res: interval in s, notes: [text] }
-  function parse(text) {
-    const lines = String(text).replace(/^﻿/, '').split(/\r?\n/).filter(l => l.trim());
-    if (!lines.length) throw new Error('the file is empty');
-    const sample = lines.slice(0, 20).join('\n');
-    const sep = [';', '\t', ','].map(c => [c, sample.split(c).length]).sort((a, b) => b[1] - a[1])[0][0];
-    const table = lines.map(l => splitLine(l, sep));
+  // text of a CSV file, or the rows of a spreadsheet ([[cell text]], from read()) -> { rows: [[ts, kWh]] (start of each
+  // interval, sorted), res: interval in s, notes: [text] }
+  function parse(input) {
+    let table = input;
+    if (!Array.isArray(input)) {
+      const lines = String(input).replace(/^﻿/, '').split(/\r?\n/).filter(l => l.trim());
+      if (!lines.length) throw new Error('the file is empty');
+      const sample = lines.slice(0, 20).join('\n');
+      const sep = [';', '\t', ','].map(c => [c, sample.split(c).length]).sort((a, b) => b[1] - a[1])[0][0];
+      table = lines.map(l => splitLine(l, sep));
+    }
+    table = table.filter(r => r.some(c => String(c).trim()));
+    if (!table.length) throw new Error('the file is empty');
     // the header: the first of the first 20 lines with a time-like and a value-like column name
-    let hi = table.slice(0, 20).findIndex(r => r.some(c => TIME.test(c) && !/^\d/.test(c)) && r.some(c => VALUE.test(c) && !NOT_VALUE.test(c)));
+    let hi = table.slice(0, 20).findIndex(r => r.some(c => typeof c === 'string' && TIME.test(c) && !/^\d/.test(c)) && r.some(c => VALUE.test(c) && !NOT_VALUE.test(c)));
     let head = hi >= 0 ? table[hi] : null, ti = -1, hr = -1, vi = -1, endOnly = false;
     if (head) {
       const pick = re => head.findIndex(c => re.test(c));
@@ -160,5 +172,53 @@ const Consumption = (() => {
     }
     return out;
   }
-  return { parse, resolution, priced };
+
+  // ------------------------------------------------------------ spreadsheets
+  // a file -> [[cell]] of its first sheet (strings; plain numbers stay numbers, so Excel dates can be recognised), or the text of a CSV
+  async function read(file) {
+    const buf = new Uint8Array(await file.arrayBuffer()), head = String.fromCharCode(...buf.slice(0, 8));
+    if (head.startsWith('PK')) return xlsx(buf);
+    if (head.startsWith('\xd0\xcf\x11\xe0')) throw new Error('this is an old Excel .xls file: open it in Excel and save it as .xlsx or CSV');
+    let text;
+    try { text = new TextDecoder('utf-8', { fatal: true }).decode(buf); } catch { text = new TextDecoder('windows-1252').decode(buf); }  // Excel "CSV" on Windows
+    if (/^\s*</.test(text) && /<table/i.test(text)) {  // an HTML table saved as .xls
+      const doc = new DOMParser().parseFromString(text, 'text/html');
+      return [...doc.querySelectorAll('tr')].map(tr => [...tr.querySelectorAll('td,th')].map(c => c.textContent.trim()));
+    }
+    return text;
+  }
+  async function unzip(buf, want) {  // the files of a zip (an .xlsx) whose names pass want(name) -> { name: text }
+    const v = new DataView(buf.buffer, buf.byteOffset, buf.byteLength), out = {};
+    let e = buf.length - 22;
+    while (e >= 0 && v.getUint32(e, true) !== 0x06054b50) e--;
+    if (e < 0) throw new Error('not a valid .xlsx file');
+    for (let i = 0, p = v.getUint32(e + 16, true), n = v.getUint16(e + 10, true); i < n; i++) {
+      const method = v.getUint16(p + 10, true), size = v.getUint32(p + 20, true), nl = v.getUint16(p + 28, true);
+      const name = new TextDecoder().decode(buf.subarray(p + 46, p + 46 + nl)), lh = v.getUint32(p + 42, true);
+      p += 46 + nl + v.getUint16(p + 30, true) + v.getUint16(p + 32, true);
+      if (!want(name)) continue;
+      const start = lh + 30 + v.getUint16(lh + 26, true) + v.getUint16(lh + 28, true), data = buf.subarray(start, start + size);
+      out[name] = method === 0 ? new TextDecoder().decode(data)
+        : await new Response(new Blob([data]).stream().pipeThrough(new DecompressionStream('deflate-raw'))).text();
+    }
+    return out;
+  }
+  async function xlsx(buf) {
+    const f = await unzip(buf, n => /^xl\/(sharedStrings\.xml|worksheets\/sheet\d+\.xml)$/.test(n));
+    const sheet = Object.keys(f).filter(n => n.includes('worksheets/')).sort((a, b) => parseInt(a.match(/\d+/)) - parseInt(b.match(/\d+/)))[0];
+    if (!sheet) throw new Error('no sheet found in the .xlsx file');
+    const xml = t => new DOMParser().parseFromString(t, 'application/xml'), text = el => [...el.getElementsByTagName('t')].map(t => t.textContent).join('');
+    const shared = f['xl/sharedStrings.xml'] ? [...xml(f['xl/sharedStrings.xml']).getElementsByTagName('si')].map(text) : [];
+    const col = ref => [...ref.replace(/\d+$/, '')].reduce((n, ch) => n * 26 + ch.charCodeAt(0) - 64, 0) - 1;
+    return [...xml(f[sheet]).getElementsByTagName('row')].map(row => {
+      const r = [];
+      for (const c of row.getElementsByTagName('c')) {
+        const t = c.getAttribute('t'), v = c.getElementsByTagName('v')[0]?.textContent ?? '';
+        r[c.getAttribute('r') ? col(c.getAttribute('r')) : r.length] = t === 's' ? shared[+v] ?? '' : t === 'inlineStr' ? text(c) : t === 'str' || t === 'b' || t === 'e' ? v : v === '' ? '' : +v;
+      }
+      return Array.from(r, x => x ?? '');
+    });
+  }
+
+  return { parse, read, resolution, priced };
 })();

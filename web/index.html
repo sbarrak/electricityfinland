@@ -90,11 +90,11 @@
       <span id="gnote" class="hint"></span>
     </div>
     <div class="toolbar consbar consonly" id="consbar">
-      <label class="btn ghost" title="A CSV file with a time and a kWh column, e.g. from Oma Datahub">⬆ Import consumption<input type="file" id="cFile" accept=".csv,.txt,text/csv,text/plain" class="vh"></label>
+      <label class="btn ghost" title="An Excel (.xlsx) or CSV file with a time and a kWh column, e.g. from OmaOomi or Oma Datahub">⬆ Import consumption<input type="file" id="cFile" accept=".xlsx,.xls,.csv,.txt" class="vh"></label>
       <button type="button" class="ghost" id="cDel" title="Delete all imported consumption">✕ Delete imported</button>
       <span id="cnote" class="hint"></span>
     </div>
-    <details class="hint consonly" id="chelp"><summary>How do I get the file?</summary> Get your use as a file: log in to <a href="https://oma.datahub.fi" target="_blank" rel="noopener">Oma Datahub</a> (Fingrid's free service, bank ID; it has the meter readings for Oomi and every other Finnish electricity company) and download the consumption of the period you want as a CSV file, with hourly or 15-minute values. A CSV export from OmaOomi or another service works too (an Excel file: save it as CSV first). Importing the same period again replaces it. The cost uses the price of each hour or 15 minutes with your Costs settings and the Spot / Total cost and Incl. VAT choices above.</details>
+    <details class="hint consonly" id="chelp"><summary>How do I get the file?</summary> <b>Oomi:</b> OmaOomi → Kulutus (Consumption) → pick the address and the period → <b>Lataa (.xls)</b>, then import that file here as it is (the file does not say which address it is for, so check the address before downloading). <b>Any company:</b> log in to <a href="https://oma.datahub.fi" target="_blank" rel="noopener">Oma Datahub</a> (Fingrid's free service, bank ID; it has the meter readings for Oomi and every other Finnish electricity company) and download the consumption of the period you want as a CSV file, with hourly or 15-minute values. An Excel (.xlsx) or CSV export from another service works too. Importing the same period again replaces it. The cost uses the price of each hour or 15 minutes with your Costs settings and the Spot / Total cost and Incl. VAT choices above.</details>
     <div id="gridwrap" class="gridwrap gridonly" tabindex="0" aria-label="Prices table">
       <table id="grid"><colgroup><col class="cn"><col class="cd"><col class="cp"><col class="ct"><col class="cw"><col class="cs"></colgroup>
         <thead></thead><tbody></tbody><tfoot></tfoot></table>
@@ -191,7 +191,7 @@
 <script src="costs.js?v=13"></script>
 <script src="local.js?v=13"></script>
 <script src="grid.js?v=1"></script>
-<script src="consumption.js?v=1"></script>
-<script src="app.js?v=18"></script>
+<script src="consumption.js?v=2"></script>
+<script src="app.js?v=19"></script>
 </body>
 </html>

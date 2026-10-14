@@ -294,10 +294,7 @@ $('#cFile').onchange = async e => {
   if (!f) return;
   try {
     note(`Reading ${f.name}…`);
-    const buf = await f.arrayBuffer();
-    let text;
-    try { text = new TextDecoder('utf-8', { fatal: true }).decode(buf); } catch { text = new TextDecoder('windows-1252').decode(buf); }  // Excel "CSV" on Windows
-    const r = Consumption.parse(text), N = 5000;
+    const r = Consumption.parse(await Consumption.read(f)), N = 5000;
     for (let i = 0; i < r.rows.length; i += N) {
       note(`Saving ${r.rows.length} readings… ${Math.round(i / r.rows.length * 100)} %`);
       await api('consumption', { method: 'POST', body: JSON.stringify({ rows: r.rows.slice(i, i + N).map(([t, v]) => [t, +v.toFixed(5)]) }) });
