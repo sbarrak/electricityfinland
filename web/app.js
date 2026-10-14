@@ -21,6 +21,7 @@ let D = null, S = {}, chart = null, filled = false, loadedDays = 60, bucket = nu
 let mode = store('mode') === 'spot' ? 'spot' : 'total', vat = store('vat') !== '0', avgOn = store('avg') === '1';
 let tab = 'prices', view = null, yZoom = 1, yPos = 0.5, touched = 0, sel = null;  // sel: chart point picked for the breakdown
 let tipOn = store('tip') !== '0';  // the box with the price of the touched chart point
+let tempOn = store('temp') === '1', wxOn = store('wx') !== '0';  // temperature curve, weather row under the chart
 const tipEvents = () => tipOn ? ['mousemove', 'mouseout', 'click', 'touchstart', 'touchmove'] : [];  // no events: the box never opens (taps and drags still work)
 
 // ---------------------------------------------------------------- settings form
@@ -88,7 +89,7 @@ const saveNow = async () => {
   monthlyInfo(); refreshValues();
 };
 const autosave = e => {
-  if (e?.target?.closest?.('#usersCard')) return;  // the users box has its own Add button
+  if (e?.target?.closest?.('#usersCard, #wxCard')) return;  // the users box has its own Add button, the weather place is picked from a list
   clearTimeout(saveTimer);
   saveTimer = setTimeout(() => saveNow().then(() => flash('Saved ✓'), e => flash('Not saved: ' + e.message)), 400);
 };
@@ -196,6 +197,110 @@ $('#msgForm').onsubmit = async e => {
   } catch (err) { $('#msgErr').textContent = err.message; }
 };
 
+// weather place: search places in Finland, pick one from the list
+let wxTimer = 0, wxFound = [];
+$('#wxQ').addEventListener('input', e => {
+  clearTimeout(wxTimer);
+  const q = e.target.value.trim();
+  if (q.length < 2) { $('#wxList').innerHTML = ''; return; }
+  wxTimer = setTimeout(async () => {
+    try {
+      wxFound = await api('places?q=' + encodeURIComponent(q));
+      $('#wxList').innerHTML = wxFound.length ? wxFound.map((p, i) => `<button type="button" class="ghost" data-i="${i}">${esc(p.name)}` +
+        `${p.area && p.area !== p.name ? ` <small>${esc(p.area)}</small>` : ''}</button>`).join('') : '<p class="hint">No place in Finland with that name.</p>';
+      $('#wxMsg').textContent = '';
+    } catch (err) { $('#wxMsg').textContent = 'Place search: ' + err.message; }
+  }, 350);
+});
+$('#wxList').onclick = async e => {
+  const p = wxFound[e.target.closest('[data-i]')?.dataset.i];
+  if (!p) return;
+  const place = p.area && p.area !== p.name ? `${p.name}, ${p.area}` : p.name;
+  $('#wxMsg').textContent = `Loading the weather for ${place} (a year back)…`;
+  try {
+    const r = await api('weather', { method: 'POST', body: JSON.stringify({ place, lat: p.lat, lon: p.lon }) });
+    $('#wxQ').value = ''; $('#wxList').innerHTML = '';
+    $('#wxMsg').textContent = r.weather === 'ok' ? `Weather for ${place} ✓` : `${place} saved, but the weather could not be loaded: ${r.weather}`;
+    await load();
+  } catch (err) { $('#wxMsg').textContent = err.message; }
+};
+
+// export: the prices of a year, month, week or day (or a custom period up to a year) as CSV or Excel
+const xd = $('#expDialog');
+let expKind = ['year', 'month', 'week', 'day', 'custom'].includes(store('expKind')) ? store('expKind') : 'year';
+const markExp = seg('expKind', expKind, v => { expKind = v; store('expKind', v); expShow(); });
+{
+  const y = new Date().getFullYear(), oldest = new Date(Date.now() - MAX_DAYS * DAY).getFullYear() + 1;
+  for (let i = y; i >= oldest; i--) $('#expYear').insertAdjacentHTML('beforeend', `<option>${i}</option>`);
+  $('#expMonth').innerHTML = Array.from({ length: 12 }, (_, i) => `<option value="${i}">${new Date(2000, i, 1).toLocaleDateString('en-GB', { month: 'long' })}</option>`).join('');
+}
+const day0 = v => v ? +new Date(v + 'T00:00') : NaN;
+function expRange() {  // {a, b} in ms (b excluded), a name for the file and a text for the dialog; or {err}
+  const y = +$('#expYear').value, m = +$('#expMonth').value, d = day0($('#expDay').value), D_ = 'en-GB';
+  let a, b, name, what;
+  if (expKind === 'year') { a = +new Date(y, 0, 1); b = +new Date(y + 1, 0, 1); name = `${y}`; what = `Year ${y}`; }
+  else if (expKind === 'month') { a = +new Date(y, m, 1); b = +new Date(y, m + 1, 1); name = isoDate(a).slice(0, 7); what = new Date(a).toLocaleDateString(D_, { month: 'long', year: 'numeric' }); }
+  else if (expKind === 'week' || expKind === 'day') {
+    if (isNaN(d)) return { err: 'Pick a day.' };
+    const s = new Date(d);
+    if (expKind === 'week') s.setDate(s.getDate() - (s.getDay() + 6) % 7);  // weeks start on Monday
+    a = +s; s.setDate(s.getDate() + (expKind === 'week' ? 7 : 1)); b = +s;
+    const wk = (t => { const x = new Date(t), th = new Date(x.getFullYear(), x.getMonth(), x.getDate() + 3), w1 = new Date(th.getFullYear(), 0, 4);
+      return [th.getFullYear(), 1 + Math.round(((th - w1) / DAY - 3 + (w1.getDay() + 6) % 7) / 7)]; })(a);
+    name = expKind === 'week' ? `${wk[0]}-W${String(wk[1]).padStart(2, '0')}` : isoDate(a);
+    what = expKind === 'week' ? `Week ${wk[1]}: ${dayFmt(a)} – ${dayFmt(b - DAY)}` : dayFmt(a);
+  } else {
+    a = day0($('#expFrom').value); b = day0($('#expTo').value) + DAY;
+    if (isNaN(a) || isNaN(b)) return { err: 'Pick the first and the last day.' };
+    if (b <= a) return { err: 'The last day is before the first day.' };
+    if (b - a > 366 * DAY) return { err: 'A custom period can be at most a year: pick Year for a whole year.' };
+    name = `${isoDate(a)}_${isoDate(b - DAY)}`; what = `${dayFmt(a)} – ${dayFmt(b - DAY)}`;
+  }
+  if (a < Date.now() - MAX_DAYS * DAY) return { err: `Prices can be loaded back to ${dayFmt(Date.now() - MAX_DAYS * DAY)}.` };
+  if (a > Date.now() + 2 * DAY) return { err: 'There are no prices for this period yet.' };
+  return { a, b, name, what };
+}
+function expShow() {
+  markExp(expKind);
+  $$('[data-for]', xd).forEach(el => el.classList.toggle('hidden', !el.dataset.for.split(' ').includes(expKind)));
+  $('#expDayLabel').firstChild.textContent = expKind === 'week' ? 'Any day of the week' : 'Day';
+  const r = expRange(), res = $('#expRes').value, step = { 900: 900e3, 3600: 36e5, day: DAY }[res];
+  $('#expErr').textContent = r.err || '';
+  $('#expSum').textContent = r.err ? '' : `${r.what} · about ${Math.round((r.b - r.a) / step).toLocaleString('en-GB')} rows of ${$('#expRes').selectedOptions[0].text}` +
+    ` · spot, total cost, wind power, temperature, wind m/s and weather in ${S.wx_place}`;
+  $$('#expCsv, #expXlsx').forEach(b => b.disabled = !!r.err);
+}
+$('#exportBtn').onclick = () => {
+  const d = isoDate(view?.min ?? Date.now());
+  for (const id of ['expDay', 'expFrom']) if (!$('#' + id).value) $('#' + id).value = d;
+  if (!$('#expTo').value) $('#expTo').value = isoDate((view?.max ?? Date.now() + DAY) - 1);
+  $('#expVat').checked = vat;
+  if (!$('#expMonth').dataset.set) { $('#expMonth').value = new Date().getMonth(); $('#expMonth').dataset.set = 1; }
+  expShow(); xd.showModal();
+};
+xd.addEventListener('input', expShow);
+xd.addEventListener('change', expShow);
+$('#expCancel').onclick = () => xd.close();
+$$('#expCsv, #expXlsx').forEach(btn => btn.onclick = async () => {
+  const r = expRange();
+  if (r.err) return;
+  $$('#expCsv, #expXlsx').forEach(b => b.disabled = true);
+  try {
+    const need = Math.ceil((Date.now() - r.a) / DAY) + 1;
+    if (need > loadedDays) {  // older than what the page has: fetch the prices (and the weather) of that time first
+      $('#expSum').textContent = 'Loading the prices of that period…';
+      const days = Math.min(MAX_DAYS, need);
+      await api('history', { method: 'POST', body: JSON.stringify({ days }) }).catch(() => {});
+      await load(days);
+    }
+    const res = $('#expRes').value, n = GridView.exportRange(r.a / 1000, r.b / 1000, res === 'day' ? 'day' : +res, $('#expVat').checked,
+      btn.id === 'expCsv' ? 'csv' : 'xlsx', `electricity-${r.name}_${$('#expRes').selectedOptions[0].text.replace(' ', '')}`);
+    if (!n) { $('#expErr').textContent = 'There are no prices in this period.'; return; }
+    xd.close(); flash(`Exported ${n.toLocaleString('en-GB')} rows ✓`);
+  } catch (err) { $('#expErr').textContent = err.message; }
+  finally { expShow(); }
+});
+
 // ---------------------------------------------------------------- api, login, account
 async function api(path, opts = {}) {
   if (LOCAL) return LOCAL.api(path, opts);
@@ -279,6 +384,9 @@ check('tip', tipOn, v => {  // the box with the price of the touched point can c
   chart.update('none');
 });
 
+check('temp', tempOn, v => { tempOn = v; store('temp', v ? '1' : '0'); build(); });
+check('wx', wxOn, v => { wxOn = v; store('wx', v ? '1' : '0'); build(); });
+
 const midnight = (days = 0) => { const d = new Date(); d.setHours(0, 0, 0, 0); d.setDate(d.getDate() + days); return +d; };
 const defaultView = () => ({ min: midnight(-3), max: midnight(3) });
 const isoDate = ms => { const d = new Date(ms); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
@@ -289,8 +397,11 @@ async function showRange(min, max) {
     const days = Math.min(MAX_DAYS, need);
     $('#status').textContent = 'Loading prices for the selected period…';
     let note = '';
-    try { const r = await api('history', { method: 'POST', body: JSON.stringify({ days }) }); if (r.rows === 0) note = 'No older prices were returned by the source.'; }
-    catch (e) { note = 'Cannot fetch older prices: ' + e.message; }
+    try {
+      const r = await api('history', { method: 'POST', body: JSON.stringify({ days }) });
+      if (r.rows === 0) note = 'No older prices were returned by the source.';
+      if (String(r.weather).startsWith('failed')) note += (note ? ' ' : '') + 'Older weather: ' + r.weather;
+    } catch (e) { note = 'Cannot fetch older prices: ' + e.message; }
     await load(days);
     if (note) { flash(note); clearTimeout(flash.t); flash.t = setTimeout(status, 20000); }
   }
@@ -321,8 +432,9 @@ $$('[data-z]').forEach(b => b.onclick = () => {
 // ---------------------------------------------------------------- data and chart
 async function load(days = loadedDays) {
   try { D = await api('data?days_back=' + days); } catch (e) { if (e.message !== 'login required') flash('Cannot load data: ' + e.message); return; }
-  loadedDays = Math.max(days, 60); S = D.settings;
+  loadedDays = Math.max(days, 60); S = D.settings; D.wx = WX.parse(D.weather);
   if (!filled) { fillSettings(); filled = true; }
+  $('#wxPlace').textContent = S.wx_place;
   renderSchedule();
   if (!view) view = defaultView();
   build();
@@ -379,6 +491,7 @@ function series() {
     { label: 'Wind forecast MW', rows: D.wind, kind: 'wind', borderColor: css('--wind'), backgroundColor: css('--wind-bg'), fill: 'origin', tension: .3 },
     { label: 'Wind actual MW', rows: D.wind_actual, kind: 'wind', borderColor: css('--wind-act') },
   ];
+  if (showTemp()) list.push({ label: 'Temperature °C', rows: D.wx.map(w => [w.t, w.temp]), kind: 'temp', borderColor: tempColor, tension: .35, borderWidth: 2.5 });
   return list.filter(d => d.rows.length);
 }
 
@@ -429,6 +542,10 @@ const overlay = {
       }
     }
     if (showThr()) { if (S.high_on) hline(S.high, css('--hi')); if (S.low_on) hline(S.low, css('--lo')); }
+    if (showTemp() && c.scales.y2) {  // a faint 0 °C line, where the temperature turns from red to blue
+      const py = c.scales.y2.getPixelForValue(0);
+      if (py > top && py < bottom) { g.setLineDash([2, 4]); g.strokeStyle = TEMP.cold; g.globalAlpha = .6; g.beginPath(); g.moveTo(left, py); g.lineTo(right, py); g.stroke(); g.globalAlpha = 1; }
+    }
     if (avgOn) {  // one average per part of the chart, drawn over that part; labels move up when they would overlap
       const placed = [];
       g.font = '600 12px sans-serif';
@@ -458,13 +575,84 @@ const overlay = {
   },
 };
 
+// ---------------------------------------------------------------- weather row (icon, then wind m/s) and temperature
+const WX_ROW = 50;  // px under the time labels
+const showWx = () => wxOn && tab === 'prices' && D?.wx?.length > 0;
+const showTemp = () => tempOn && tab === 'prices' && D?.wx?.length > 0;
+let PAL = {}, TEMP = {}, wxCache = null;
+function tempColor(ctx) {  // red above 0 °C, blue below, switching exactly at the zero line
+  const c = ctx.chart, a = c.chartArea, y = c.scales.y2;
+  if (!a || !y) return TEMP.warm;
+  const f = Math.max(0, Math.min(1, (y.getPixelForValue(0) - a.top) / (a.bottom - a.top))), key = `${a.top}|${a.bottom}|${f}`;
+  if (TEMP.key !== key) {
+    const gr = c.ctx.createLinearGradient(0, a.top, 0, a.bottom);
+    gr.addColorStop(0, TEMP.warm); gr.addColorStop(f, TEMP.warm); gr.addColorStop(f, TEMP.cold); gr.addColorStop(1, TEMP.cold);
+    Object.assign(TEMP, { key, gr });
+  }
+  return TEMP.gr;
+}
+const WX_STEPS = [0.25, 0.5, 1, 2, 3, 6, 12, 24, 48, 168];  // hours; then months, then years
+function wxIntervals(x) {  // the shortest step that leaves room for an icon: at 15 min each hourly icon repeats 4 times, longer steps combine hours
+  const px = (x.right - x.left) / (x.max - x.min), MIN = 34;
+  const st = WX_STEPS.find(h => h * 36e5 * px >= MIN), unit = st ? '' : 30 * DAY * px >= MIN ? 'month' : 'year';
+  const d = new Date(x.min);
+  if (st && st < 1) d.setTime(Math.floor(x.min / (st * 36e5)) * st * 36e5);  // Finnish time is a whole number of hours from UTC
+  else {
+    d.setMinutes(0, 0, 0);
+    if (st && st < 24) d.setHours(Math.floor(d.getHours() / st) * st);
+    else {
+      d.setHours(0);
+      if (st === 168) d.setDate(d.getDate() - (d.getDay() + 6) % 7);  // weeks start on Monday
+      if (unit) d.setDate(1);
+      if (unit === 'year') d.setMonth(0);
+    }
+  }
+  const next = t => { const n = new Date(t);
+    if (unit === 'month') n.setMonth(n.getMonth() + 1); else if (unit === 'year') n.setFullYear(n.getFullYear() + 1);
+    else if (st < 24) n.setTime(t + st * 36e5); else n.setDate(n.getDate() + st / 24);
+    return +n; };
+  const out = [];
+  for (let a = +d, i = 0; a < x.max && i < 800; i++) {
+    const b = next(a), px0 = x.getPixelForValue(Math.max(a, x.min)), px1 = x.getPixelForValue(Math.min(b, x.max));
+    if (px1 - px0 >= 24) {  // too little of it in view for an icon: left out
+      const w = WX.summarize(WX.between(D.wx, a / 1000, b / 1000), b - a >= 23 * 36e5);
+      if (w) out.push({ cx: (px0 + px1) / 2, s: w });
+    }
+    a = b;
+  }
+  return out;
+}
+const weatherRow = {
+  id: 'weatherRow', afterDraw(c) {
+    if (!showWx()) return;
+    const x = c.scales.x, { left, right } = c.chartArea, top = x.bottom + 4, g = c.ctx;
+    const key = `${x.min}|${x.max}|${D.wx.length}|${D.wx.at(-1).t}|${c.width}`;
+    if (wxCache?.key !== key) wxCache = { key, list: wxIntervals(x) };
+    g.save();
+    g.font = '11px sans-serif'; g.fillStyle = css('--muted'); g.textAlign = 'right'; g.textBaseline = 'middle';
+    g.fillText('m/s', left - 6, top + 38);
+    g.beginPath(); g.rect(left - 4, top - 2, right - left + 8, WX_ROW); g.clip();
+    g.font = '600 11px sans-serif'; g.textAlign = 'center';
+    const fg = css('--fg');
+    for (const { cx, s } of wxCache.list) {
+      WX.draw(g, cx, top + 13, 26, s, PAL);
+      g.fillStyle = fg; g.fillText(String(Math.round(s.ms)), cx, top + 38);
+    }
+    g.restore();
+  },
+};
+
 function build() {
   if (!D) return;
+  PAL = WX.palette(); TEMP = { warm: css('--t-warm'), cold: css('--t-cold') }; wxCache = null;
+  $('.plot').classList.toggle('wx', showWx());
+  $$('.prices-only').forEach(el => el.classList.toggle('hidden', tab !== 'prices'));
   $('.chartcard').classList.toggle('gridmode', tab === 'grid');
   if (tab === 'grid') {  // the table instead of the chart (grid.js)
     chart?.destroy(); chart = null;
     renderCards(); renderBreakdown();
-    $('#legend').textContent = '· red ▲ = at or above your high limit, green ▼ = at or below your low limit (on the Spot or Total cost column picked above, underlined) · violet rows = published future price (fixed) · grey italic rows = estimate (not fixed) · blue = wind power MW (actual when there is one, otherwise the forecast)';
+    $('#legend').textContent = '· red ▲ = at or above your high limit, green ▼ = at or below your low limit (on the Spot or Total cost column picked above, underlined) · violet rows = published future price (fixed) · grey italic rows = estimate (not fixed) · yellow = wind power MW (actual when there is one, otherwise the forecast)' +
+      ` · temperature (red above 0 °C, blue below), wind m/s and weather in ${S.wx_place}`;
     setView(view.min, view.max);
     return status();
   }
@@ -472,12 +660,13 @@ function build() {
   chart?.destroy();
   renderCards(); renderBreakdown();
   const grid = { color: css('--grid') }, ticks = { color: css('--muted') }, small = innerWidth < 600;
-  const datasets = series().map(d => ({ ...d, data: [], pointRadius: 0, borderWidth: d.kind === 'wind' ? 1.5 : 2,
-    stepped: d.kind === 'price' ? 'after' : false, yAxisID: d.kind === 'price' ? 'y' : 'y1' }));
+  const datasets = series().map(d => ({ ...d, data: [], pointRadius: 0, borderWidth: d.borderWidth || (d.kind === 'wind' ? 1.5 : 2),
+    stepped: d.kind === 'price' ? 'after' : false, yAxisID: { price: 'y', wind: 'y1', temp: 'y2' }[d.kind] }));
   chart = new Chart($('#chart'), {
-    type: 'line', data: { datasets }, plugins: [overlay],
+    type: 'line', data: { datasets }, plugins: [overlay, weatherRow],
     options: {
       responsive: true, maintainAspectRatio: false, animation: false, parsing: false, normalized: true,
+      layout: { padding: { bottom: showWx() ? WX_ROW : 0 } },
       interaction: { mode: 'x', intersect: false }, elements: { point: { hitRadius: 4 } },
       onClick: (evt, _, ch) => { sel = ch.scales.x.getValueForPixel(evt.x) / 1000; renderBreakdown(); ch.draw(); },
       scales: {
@@ -486,18 +675,26 @@ function build() {
         y: { grid, ticks: { ...ticks, callback: v => +v.toFixed(1) }, title: { display: !small, text: 'c/kWh', color: ticks.color } },
         y1: { display: tab !== 'compare', position: 'right', min: 0, grid: { display: false }, ticks,
           title: { display: !small, text: 'MW', color: ticks.color } },
+        y2: { display: showTemp(), position: 'right', grid: { display: false }, ticks: { color: TEMP.warm, callback: v => +v.toFixed(1) + '°' },
+          title: { display: !small, text: '°C', color: TEMP.warm } },
       },
       plugins: {
         legend: { labels: { color: css('--fg'), boxWidth: 12, font: { size: small ? 10 : 12 } } },
         tooltip: { events: tipEvents(), filter: (it, i, all) => all.findIndex(o => o.datasetIndex === it.datasetIndex) === i, callbacks: {
           title: it => it.length ? `${dayFmt(it[0].parsed.x)} ${hm(it[0].parsed.x)}` + (bucket > 900 ? `–${hm(it[0].parsed.x + bucket * 1000)}` : '') : '',
-          label: c => `${c.dataset.label}: ${c.parsed.y.toFixed(c.dataset.kind === 'price' ? 2 : 0)}` } },
+          label: c => `${c.dataset.label}: ${c.parsed.y.toFixed(c.dataset.kind === 'price' ? 2 : c.dataset.kind === 'temp' ? 1 : 0)}`,
+          footer: it => {  // the weather of that point: what the icon shows, the temperature and the wind
+            if (!it.length || !showWx()) return '';
+            const t = it[0].parsed.x / 1000, w = WX.summarize(WX.between(D.wx, t, t + bucket), bucket >= 86400);
+            return w ? `${WX.describe(w)} · ${w.temp.toFixed(1)} °C · ${Math.round(w.ms)} m/s` : '';
+          } } },
       },
     },
   });
   $('#legend').textContent = tab === 'compare'
     ? '· solid = published day-ahead price · dashed = estimate made before the price was published'
-    : '· blue = published price up to now · green = published future price (fixed) · orange dashed = estimate (not fixed) · cyan = wind power MW';
+    : '· blue = published price up to now · green = published future price (fixed) · orange dashed = estimate (not fixed) · yellow = wind power MW' +
+      (showTemp() ? ' · temperature °C: red above 0, blue below' : '') + (showWx() ? ` · under the time: weather and wind m/s in ${S.wx_place}` : '');
   bucket = null;
   setView(view.min, view.max);
   status();
@@ -534,7 +731,7 @@ function update() {
   const b = BUCKETS.find(x => span / 1000 / x <= W / 2) || 86400;
   if (b !== bucket) {
     bucket = b;
-    for (const d of chart.data.datasets) d.data = agg(d.rows, b, d.kind === 'price' ? val : r => r[1], d.kind === 'price');
+    for (const d of chart.data.datasets) d.data = agg(d.rows, d.kind === 'temp' ? Math.max(b, 3600) : b, d.kind === 'price' ? val : r => r[1], d.kind === 'price');
   }
   const markers = span / 1000 / b <= W / 14;  // few enough points in view: draw each data point
   for (const d of chart.data.datasets) { d.pointRadius = markers ? 2.5 : 0; d.pointBackgroundColor = d.borderColor; }
@@ -543,6 +740,8 @@ function update() {
   let [lo, hi] = yRange(); lo = Math.floor(lo); hi = Math.ceil(hi);
   const h = (hi - lo) / yZoom, top = hi - yPos * (hi - lo - h);
   Object.assign(chart.options.scales.y, { min: top - h, max: top });
+  const temps = chart.data.datasets.find(d => d.kind === 'temp')?.data.filter(p => p.x >= view.min - 36e5 && p.x <= view.max).map(p => p.y);
+  if (temps?.length) Object.assign(chart.options.scales.y2, { min: Math.floor(Math.min(...temps) - 1), max: Math.ceil(Math.max(...temps) + 1) });
   chart.update('none');
   syncScroll(); info();
   $('#from').value = isoDate(view.min); $('#to').value = isoDate(view.max - 1);

@@ -1,4 +1,4 @@
-"""Electricity Finland: spot price + wind monitor with WhatsApp/email alarms."""
+"""Electricity Finland: spot price + wind + weather monitor with WhatsApp/email alarms."""
 import asyncio, hashlib, hmac, html, json, logging, math, os, re, smtplib, sqlite3, ssl, threading, time, urllib.parse
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
@@ -24,9 +24,15 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(mess
 TZ = ZoneInfo("Europe/Helsinki")
 VAT_FEED = 1.255  # VAT included in the public feeds (porssisahko, forecast)
 FINGRID_KEY = os.getenv("FINGRID_API_KEY", "")
-HISTORY_DAYS = 366  # forecasts and wind are kept this long
-MAX_HISTORY_DAYS = 2200  # published prices are kept (hourly rows, small) and can be loaded this far back on demand
+HISTORY_DAYS = 366  # forecasts and wind are kept this long; weather is loaded this far back
+MAX_HISTORY_DAYS = 2200  # published prices and weather are kept (hourly rows, small) and can be loaded this far back on demand
 NPF = "https://raw.githubusercontent.com/vividfog/nordpool-predict-fi/main/deploy/"
+# Open-Meteo (free, no key): forecast with the last days, the archive for older weather, and place search
+WX_FORECAST = "https://api.open-meteo.com/v1/forecast"
+WX_ARCHIVE = "https://archive-api.open-meteo.com/v1/archive"
+WX_GEO = "https://geocoding-api.open-meteo.com/v1/search"
+WX_VARS = "weather_code,temperature_2m,wind_speed_10m,wind_direction_10m,cloud_cover,precipitation,snowfall,is_day"
+FINLAND = (59.3, 70.2, 19.0, 31.7)  # lat min, lat max, lon min, lon max: weather places must be in Finland
 env = lambda k, d="": os.getenv("SMTP_" + k.upper()) or d  # empty values in .env fall back to the default
 
 # Fee fields are c/kWh incl. VAT (as on Finnish invoices); monthly fees in EUR.
@@ -37,6 +43,7 @@ DEFAULTS = {
     "alarm_basis": "total", "alarm_vat": True, "high_on": True, "high": 20.0, "low_on": True, "low": 2.0,
     "summary_on": True, "extra_time_1": "", "extra_time_2": "", "extra_time_3": "",  # extra send times "HH:MM", empty = off
     "wa_on": True, "email_on": True, "recipients": [], "alerts_v2": False,  # alerts_v2: one-time switch-on of limits/channels done
+    "wx_place": "Helsinki", "wx_lat": 60.1699, "wx_lon": 24.9384,  # weather under the chart (a place in Finland)
     # message templates, placeholders: see fill() / web/costs.js. {limit} is the limit, {price} the highest / lowest hourly price
     "msg_high": "⬆️ Above {limit} c/kWh: {weekday} {date} {time}–{end} ({duration}), highest {price}",
     "msg_low": "⬇️ Below {limit} c/kWh: {weekday} {date} {time}–{end} ({duration}), lowest {price}",
@@ -103,6 +110,8 @@ CREATE TABLE IF NOT EXISTS prices(ts INTEGER PRIMARY KEY, spot REAL);
 CREATE TABLE IF NOT EXISTS forecast(ts INTEGER PRIMARY KEY, spot REAL);
 CREATE TABLE IF NOT EXISTS wind(ts INTEGER, src TEXT, mw REAL, PRIMARY KEY(ts, src));
 CREATE TABLE IF NOT EXISTS kv(k TEXT PRIMARY KEY, v TEXT);
+CREATE TABLE IF NOT EXISTS weather(loc TEXT, ts INTEGER, code INTEGER, temp REAL, ms REAL, dir REAL, cloud REAL, mm REAL,
+  snow REAL, day INTEGER, PRIMARY KEY(loc, ts));
 CREATE TABLE IF NOT EXISTS users(id INTEGER PRIMARY KEY AUTOINCREMENT, username TEXT UNIQUE COLLATE NOCASE,
   salt TEXT, hash TEXT, is_admin INTEGER, must_change INTEGER, gen INTEGER);
 """)
@@ -239,6 +248,70 @@ async def fetch_forecasts(c, fingrid=True):
     for t in ("forecast", "wind"):  # published prices are kept
         db.execute(f"DELETE FROM {t} WHERE ts<?", (cutoff,))
     db.commit()
+
+
+# ---------------------------------------------------------------- weather (Open-Meteo, hourly, per place; kept like the prices)
+def in_finland(lat, lon):
+    return FINLAND[0] <= lat <= FINLAND[1] and FINLAND[2] <= lon <= FINLAND[3]
+
+
+def loc_of(s):  # the weather place of a user's settings, as the key of the weather table
+    return f"{float(s['wx_lat']):.3f},{float(s['wx_lon']):.3f}"
+
+
+def wx_rows(j):
+    """Open-Meteo hourly JSON (timeformat=unixtime) -> rows (ts, code, temp, ms, dir, cloud, mm, snow, day); hours without data are left out."""
+    h = j.get("hourly") or {}
+    cols = [h.get(k) or [] for k in ("time", *WX_VARS.split(","))]
+    return [(int(r[0]), int(r[1]), *r[2:8], int(r[8] or 0)) for r in zip(*cols) if r[1] is not None and r[2] is not None]
+
+
+def wx_params(loc, **extra):
+    lat, lon = loc.split(",")
+    return {"latitude": lat, "longitude": lon, "hourly": WX_VARS, "wind_speed_unit": "ms", "timeformat": "unixtime", "timezone": "GMT", **extra}
+
+
+def wx_store(loc, rows, replace):
+    db.executemany(f"{'REPLACE' if replace else 'INSERT OR IGNORE'} INTO weather VALUES(?,?,?,?,?,?,?,?,?,?)", [(loc, *r) for r in rows])
+    db.commit()
+    return len(rows)
+
+
+async def fetch_weather(c, loc):
+    """The last 7 days and the next 16 days. Newer model runs replace what is stored for those hours."""
+    r = await c.get(WX_FORECAST, params=wx_params(loc, past_days=7, forecast_days=16))
+    r.raise_for_status()
+    log.info("weather %s: %d hours", loc, wx_store(loc, wx_rows(r.json()), True))
+
+
+async def backfill_weather(c, loc, days=HISTORY_DAYS):
+    """Older hours from the archive back `days` days (only hours that are missing). Returns the hours added, -1 if nothing was needed."""
+    first = db.execute("SELECT MIN(ts) FROM weather WHERE loc=?", (loc,)).fetchone()[0] or time.time()
+    start = time.time() - min(days, MAX_HISTORY_DAYS) * 86400
+    if first - start < 2 * 86400 or start >= kv_get(f"wx_from:{loc}", time.time()):
+        return -1  # nothing to fetch, or already asked for
+    day = lambda t: datetime.fromtimestamp(t, timezone.utc).strftime("%Y-%m-%d")
+    total, end = 0, first
+    while end - start > 86400:  # one request per year of data
+        a = max(start, end - HISTORY_DAYS * 86400)
+        r = await c.get(WX_ARCHIVE, params=wx_params(loc, start_date=day(a), end_date=day(end)))
+        r.raise_for_status()
+        total, end = total + wx_store(loc, wx_rows(r.json()), False), a
+    if total:  # nothing at all is suspicious (source down?): ask again next time
+        kv_set(f"wx_from:{loc}", start)
+    log.info("weather history %s: %d hours", loc, total)
+    return total
+
+
+def weather_places():  # every place a user has picked (the default for users who have not picked one)
+    return sorted({loc_of(settings(uid)) for (uid,) in db.execute("SELECT id FROM users").fetchall()})
+
+
+async def update_weather(c, backfill=False):
+    for loc in weather_places():
+        await fetch_weather(c, loc)
+        if backfill:
+            await backfill_weather(c, loc)
 
 
 # ---------------------------------------------------------------- notifications
@@ -596,19 +669,20 @@ def has_tomorrow():
 
 
 async def worker():
-    last = {"p": 0, "f": 0, "h": 0}
+    last = {"p": 0, "f": 0, "h": 0, "w": 0, "wh": 0}
     async with httpx.AsyncClient(timeout=30, headers={"User-Agent": "electricityfinland/1.0"}) as c:
         while True:
             now = time.time()
             waiting = not has_tomorrow() and datetime.now(TZ).hour >= 13
             for k, every, fn in (("p", 600 if waiting else 3600, fetch_prices), ("f", 3600, fetch_forecasts),
-                                 ("h", 86400, backfill)):
+                                 ("h", 86400, backfill), ("w", 3600, update_weather),
+                                 ("wh", 86400, lambda c: update_weather(c, backfill=True))):
                 if now - last[k] > every:
                     last[k] = now
                     try:
                         await fn(c)
                     except Exception as e:
-                        log.warning("%s failed: %s", fn.__name__, e)
+                        log.warning("%s failed: %s", k if fn.__name__ == "<lambda>" else fn.__name__, e)
                         last[k] = now - every + 300  # retry in 5 min
             for (uid,) in db.execute("SELECT id FROM users").fetchall():
                 try:
@@ -814,6 +888,7 @@ async def data(days_back: int = 60, u: dict = Depends(user)):
     return {"actual": q("SELECT ts, spot FROM prices WHERE ts>=? ORDER BY ts", start),  # c/kWh excl. VAT
             "forecast": q("SELECT ts, spot FROM forecast WHERE ts>=? ORDER BY ts", start),
             "wind": wind, "wind_actual": q("SELECT ts, mw FROM wind WHERE src='actual' AND ts>=? ORDER BY ts", start),
+            "weather": q("SELECT ts, code, temp, ms, dir, cloud, mm, snow, day FROM weather WHERE loc=? AND ts>=? ORDER BY ts", loc_of(st), start),
             "settings": public(st), "schedule": schedule_info(u["id"], st), "fingrid": bool(FINGRID_KEY)}
 
 
@@ -823,20 +898,62 @@ LAST_REFRESH = [0.0]
 HISTORY_LOCK = asyncio.Lock()
 
 
-@app.post("/api/history", dependencies=[Depends(user)])
-async def history(body: dict):
-    """Fetch published prices back to the start of a period the user picked, if they are not stored yet."""
+@app.post("/api/history")
+async def history(body: dict, u: dict = Depends(user)):
+    """Fetch published prices (and the weather of the user's place) back to the start of a period the user picked, if they are not stored yet."""
     try:
         days = int(body.get("days", 0))
     except (TypeError, ValueError):
         raise HTTPException(400, "days must be a number")
     async with HISTORY_LOCK:
-        try:
-            async with httpx.AsyncClient(timeout=60, headers={"User-Agent": "electricityfinland/1.0"}) as c:
+        async with httpx.AsyncClient(timeout=60, headers={"User-Agent": "electricityfinland/1.0"}) as c:
+            try:
                 rows = await backfill(c, days)
+            except Exception as e:
+                raise HTTPException(502, f"history fetch failed: {e}")
+            try:  # the prices still count when the weather cannot be fetched
+                weather = await backfill_weather(c, loc_of(settings(u["id"])), days)
+            except Exception as e:
+                weather = f"failed: {e}"
+    return {"rows": rows, "weather": weather}
+
+
+@app.get("/api/places", dependencies=[Depends(user)])
+async def places(q: str = ""):
+    """Places in Finland matching the typed name, for the weather."""
+    if len(q.strip()) < 2:
+        return []
+    async with httpx.AsyncClient(timeout=15, headers={"User-Agent": "electricityfinland/1.0"}) as c:
+        try:
+            r = await c.get(WX_GEO, params={"name": q.strip()[:60], "count": 10, "language": "en", "countryCode": "FI", "format": "json"})
+            r.raise_for_status()
         except Exception as e:
-            raise HTTPException(502, f"history fetch failed: {e}")
-    return {"rows": rows}
+            raise HTTPException(502, f"place search failed: {e}")
+    return [{"name": p["name"], "area": p.get("admin1", ""), "lat": p["latitude"], "lon": p["longitude"]}
+            for p in r.json().get("results") or [] if p.get("country_code") == "FI" and in_finland(p["latitude"], p["longitude"])]
+
+
+@app.post("/api/weather")
+async def set_weather_place(body: dict, u: dict = Depends(user)):
+    """Pick the weather place (in Finland) and load its weather: the forecast now, a year back from the archive."""
+    try:
+        lat, lon, name = float(body["lat"]), float(body["lon"]), str(body.get("place", "")).strip()[:80]
+    except (KeyError, TypeError, ValueError):
+        raise HTTPException(400, "lat and lon must be numbers")
+    if not in_finland(lat, lon) or not name:
+        raise HTTPException(400, "pick a place in Finland")
+    s = settings(u["id"])
+    s.update(wx_place=name, wx_lat=lat, wx_lon=lon)
+    kv_set(f"settings:{u['id']}", {k: v for k, v in s.items() if k in DEFAULTS})
+    out = {"settings": public(s)}
+    async with httpx.AsyncClient(timeout=60, headers={"User-Agent": "electricityfinland/1.0"}) as c:
+        try:
+            await fetch_weather(c, loc_of(s))
+            await backfill_weather(c, loc_of(s))
+            out["weather"] = "ok"
+        except Exception as e:
+            out["weather"] = f"failed: {e}"
+    return out
 
 
 @app.post("/api/refresh", dependencies=[Depends(user)])
@@ -847,7 +964,7 @@ async def refresh(body: dict | None = None):
         raise HTTPException(429, "refreshed less than 30 s ago")
     LAST_REFRESH[0], out = time.time(), {}
     async with httpx.AsyncClient(timeout=30, headers={"User-Agent": "electricityfinland/1.0"}) as c:
-        for name, fn in (("prices", fetch_prices), ("forecast", lambda c: fetch_forecasts(c, fingrid=False))):
+        for name, fn in (("prices", fetch_prices), ("forecast", lambda c: fetch_forecasts(c, fingrid=False)), ("weather", update_weather)):
             try:
                 await fn(c)
                 out[name] = "ok"
@@ -876,6 +993,8 @@ async def put_settings(body: dict, u: dict = Depends(user)):
             raise HTTPException(400, f"invalid value for {k}")
     if s["alarm_basis"] not in ("total", "spot", "transfer") or s["smtp_security"] not in ("starttls", "ssl", "none"):
         raise HTTPException(400, "invalid alarm basis or email security")
+    if not in_finland(s["wx_lat"], s["wx_lon"]):
+        raise HTTPException(400, "the weather place must be in Finland")
     kv_set(f"settings:{u['id']}", {k: v for k, v in s.items() if k in DEFAULTS})
     return public(s)
 

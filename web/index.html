@@ -7,7 +7,7 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="theme-color" content="#0f172a">
 <title>Electricity Finland</title>
-<link rel="stylesheet" href="style.css?v=12">
+<link rel="stylesheet" href="style.css?v=13">
 </head>
 <body>
 <div id="fatal" class="fatal hidden"></div>
@@ -75,6 +75,7 @@
       </select>
       <label class="date">From <input type="date" id="from"></label>
       <label class="date">To <input type="date" id="to"></label>
+      <button type="button" class="ghost" id="exportBtn" title="Download the prices of a year, month, week or day (CSV or Excel)">⬇ Export</button>
       <div class="zoom right">
         <button data-z="x-" title="Zoom out (time; in the grid: longer rows)">−</button><span>⇔</span><span id="gres" class="gres gridonly"></span><button data-z="x+" title="Zoom in (time; in the grid: shorter rows)">+</button>
         <button data-z="y-" class="yz" title="Zoom out (price)">−</button><span class="yz">⇕</span><button data-z="y+" class="yz" title="Zoom in (price)">+</button>
@@ -90,7 +91,7 @@
       <span id="gnote" class="hint"></span>
     </div>
     <div id="gridwrap" class="gridwrap gridonly" tabindex="0" aria-label="Prices table">
-      <table id="grid"><colgroup><col class="cn"><col class="cd"><col class="cp"><col class="ct"><col class="cw"><col class="cs"></colgroup>
+      <table id="grid"><colgroup><col class="cn"><col class="cd"><col class="cp"><col class="ct"><col class="cw"><col class="ctp"><col class="cms"><col class="cwx"><col class="cs"></colgroup>
         <thead></thead><tbody></tbody><tfoot></tfoot></table>
     </div>
     <div class="plot">
@@ -98,7 +99,11 @@
       <div id="vscroll" class="vscroll"><div></div></div>
     </div>
     <div id="hscroll" class="hscroll"><div></div></div>
-    <div class="chartopts"><label class="sw"><input type="checkbox" id="tip"><span>Show data point box</span></label></div>
+    <div class="chartopts">
+      <label class="sw"><input type="checkbox" id="tip"><span>Show data point box</span></label>
+      <label class="sw prices-only"><input type="checkbox" id="temp"><span>Temperature °C</span></label>
+      <label class="sw prices-only"><input type="checkbox" id="wx"><span>Weather</span></label>
+    </div>
     <p class="legend"><span id="info"></span> <span id="legend"></span></p>
   </section>
 
@@ -113,6 +118,13 @@
       <p class="hint" id="monthlyInfo"></p>
     </details>
     <div class="card" id="breakdown"></div>
+    <details class="card" id="wxCard" open>
+      <summary>Weather <small>a place in Finland · <a href="https://open-meteo.com" target="_blank" rel="noopener">Open-Meteo</a></small></summary>
+      <p class="hint">Weather, temperature and wind m/s under the chart and in the Grid View are for <b id="wxPlace">Helsinki</b>.</p>
+      <label class="wxsearch">Change place<input type="search" id="wxQ" placeholder="Town or village, e.g. Tampere" autocomplete="off" enterkeyhint="search"></label>
+      <div id="wxList" class="wxlist"></div>
+      <p class="hint" id="wxMsg"></p>
+    </details>
     <details class="card wide">
       <summary>Recipients <small>WhatsApp / email</small></summary>
       <div id="recips"></div>
@@ -180,11 +192,37 @@
   </form>
 </dialog>
 
+<dialog id="expDialog">
+  <form method="dialog" id="expForm">
+    <h2>Export prices</h2>
+    <div class="seg" id="expKind"><button type="button" data-v="year">Year</button><button type="button" data-v="month">Month</button><button type="button" data-v="week">Week</button><button type="button" data-v="day">Day</button><button type="button" data-v="custom">Custom</button></div>
+    <div class="expgrid">
+      <label data-for="year month">Year<select id="expYear"></select></label>
+      <label data-for="month">Month<select id="expMonth"></select></label>
+      <label data-for="week day" id="expDayLabel">Day<input type="date" id="expDay"></label>
+      <label data-for="custom">First day<input type="date" id="expFrom"></label>
+      <label data-for="custom">Last day<input type="date" id="expTo"></label>
+      <label>Rows<select id="expRes"><option value="900">15 min</option><option value="3600" selected>1 h</option><option value="day">1 day</option></select></label>
+      <label class="sw"><input type="checkbox" id="expVat"><span>Prices incl. VAT</span></label>
+    </div>
+    <p class="hint" id="expSum"></p>
+    <p class="hint">Longer rows are averages (1 h = the average of its four 15-min prices; before October 2025 the prices are hourly). Older periods are fetched first, which can take a moment.</p>
+    <div class="dlgbtns">
+      <span class="right"></span>
+      <button type="button" class="ghost" id="expCancel">Cancel</button>
+      <button type="button" id="expCsv">⬇ CSV</button>
+      <button type="button" id="expXlsx">⬇ Excel</button>
+    </div>
+    <p class="err" id="expErr"></p>
+  </form>
+</dialog>
+
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js" crossorigin="anonymous"></script>
 <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns@3.0.0/dist/chartjs-adapter-date-fns.bundle.min.js" crossorigin="anonymous"></script>
 <script src="costs.js?v=13"></script>
-<script src="local.js?v=12"></script>
-<script src="grid.js?v=1"></script>
-<script src="app.js?v=17"></script>
+<script src="weather.js?v=1"></script>
+<script src="local.js?v=13"></script>
+<script src="grid.js?v=2"></script>
+<script src="app.js?v=18"></script>
 </body>
 </html>

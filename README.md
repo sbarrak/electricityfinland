@@ -1,6 +1,6 @@
 # electricityfinland
 
-Self-hosted monitor for Finnish electricity spot prices (Nord Pool day-ahead, 15-min), price estimates for the coming week, and wind power forecasts — with WhatsApp / email alarms. Runs in Docker on a NAS behind a reverse proxy.
+Self-hosted monitor for Finnish electricity spot prices (Nord Pool day-ahead, 15-min), price estimates for the coming week, wind power forecasts and the local weather — with WhatsApp / email alarms. Runs in Docker on a NAS behind a reverse proxy.
 
 ## Features
 - **Zoomable chart**: hours on the axis with the day below, 15-minute steps at the closest zoom and up to one point per day when zoomed out. Opens on today −3 days … +2 days.
@@ -9,9 +9,11 @@ Self-hosted monitor for Finnish electricity spot prices (Nord Pool day-ahead, 15
   - **From / To** dates and presets (last week, month, 3 months, year). **Average** shows three averages for the visible period, each over its own part of the chart: past published prices (blue), fixed future prices (green) and the estimate (orange). The labels move apart when they would overlap.
   - **Spot / Total cost** buttons with an **Incl. VAT** checkbox. Colours: **blue** = published price up to now, **green** = published future price (fixed), **orange dashed** = estimate (not fixed yet). Red / green dashed lines = your high / low limits. The Average value has a yellow label.
   - **Show data point box** (checkbox just below the chart, remembered): turn off the box that follows your finger or mouse when it covers the chart. Tapping a point still shows its breakdown.
+  - **Weather** (checkbox below the chart, remembered, on by default): under the time labels a row of weather icons (sun, moon, clouds, rain, sleet, snow, fog, thunder) with the wind speed in m/s below each icon, for the place picked under **Weather** (Prices tab only). The icons get as many as fit: at the closest zoom each hourly icon repeats in every 15-min slot, when zoomed out one icon sums up several hours (2 h, 3 h, 6 h, 12 h, a day, a week, a month): cloud cover is averaged, sun in some hours and rain in others shows sun, cloud and rain together, rain / sleet / snow shows when at least a fifth of the hours were wet (or it rained enough), rain and snow together give sleet, thunder adds a bolt, and the moon is used when most of the step is dark. The data point box also says the weather, temperature and wind of that point.
+  - **Temperature °C** (checkbox below the chart, remembered): adds the temperature curve with its own axis on the right, next to the MW axis. It is **red above 0 °C and blue below**, switching exactly at a faint 0 °C line. Wind power is drawn in **yellow** so it does not look like the temperature.
   - Click a point to see its **price breakdown** (spot, VAT, margin, transfer, tax, monthly fees) in the box next to Monthly fees.
   - **Estimate vs actual** tab compares the estimate made *before* the price was published with the real price, with the average error.
-  - **Grid View** tab shows the same period as a table: date and time, spot price (no margin or fees), total cost, wind power (MW) and status. It uses the same filters (period, Spot / Total cost, Incl. VAT, Average, alarm limits). Colours: **red ▲** = at or above the high limit, **green ▼** = at or below the low limit (on the Spot or Total cost column picked above, which is underlined), **violet rows** = published future price (fixed), **grey italic rows** = estimate (not fixed), **blue** = wind. The status colours are different from the limit colours, so a price crossing a limit stands out (red / green cell), and so do the switches from past to fixed to estimate. About 10 rows are in view, with both scroll bars.
+  - **Grid View** tab shows the same period as a table: date and time, spot price (no margin or fees), total cost, wind power (MW), temperature (°C), wind speed (m/s), weather and status. It uses the same filters (period, Spot / Total cost, Incl. VAT, Average, alarm limits). Colours: **red ▲** = at or above the high limit, **green ▼** = at or below the low limit (on the Spot or Total cost column picked above, which is underlined), **violet rows** = published future price (fixed), **grey italic rows** = estimate (not fixed), **yellow** = wind power, **red / blue** = temperature above / below 0 °C. The weather of a long row sums up its hours like the chart icons. The status colours are different from the limit colours, so a price crossing a limit stands out (red / green cell), and so do the switches from past to fixed to estimate. About 10 rows are in view, with both scroll bars.
     - **Zoom** (− / + next to ⇔, or pinch / Ctrl + wheel on the table) changes the rows: 15 min, 30 min, 1 h, 2 h, 3 h, 6 h, 12 h, 1 day, 1 week, 1 month, 1 year. Longer rows show the average of the prices in them (1 h = the average of its four 15-min prices).
     - **Select** adjacent cells (drag, or Shift+click / Shift+arrows), rows (the # column) or columns (the headers); on a phone tap one cell, then another. **⧉ Copy** (or Ctrl+C / ⌘C) copies the selection for a spreadsheet; **✕ Deselect** (or Esc) clears it.
     - **⬇ Export CSV / ⬇ Export Excel** (.xlsx, with the colours) save the selection, or the whole period when nothing is selected.
@@ -26,6 +28,8 @@ Self-hosted monitor for Finnish electricity spot prices (Nord Pool day-ahead, 15
 - Costs, monthly fees, recipients and email server settings are **saved automatically** while you type.
 - **Several recipients**, each with their own WhatsApp number (CallMeBot key) and/or email: WhatsApp goes to rows with a phone and key, email to rows with an address. Tick the box at the start of a row to select it for a test, then **💬 Send WhatsApp** or **✉️ Send email** to send a test message to the selected rows (scheduled messages go to everyone).
 - **Email server menu** for your SMTP relay (server, port, STARTTLS/SSL, username, password) with a test button.
+- **⬇ Export** (next to From / To) downloads the prices as **CSV or Excel** for a whole **year**, a **month**, a **week** (pick any day of it, weeks start on Monday), a **day**, or a **custom** period of up to a year, in rows of 15 min, 1 h or 1 day, with or without VAT. Every row has the spot price, total cost, wind power, temperature, wind m/s, weather and status. A period older than what the page has loaded is fetched first.
+- **Weather** box (under the chart): search a town or village in **Finland** and pick it from the list; the weather of the last year is loaded for it. Every user has their own place (default Helsinki). Weather is stored like the prices and is not deleted; older weather is fetched when you pick an older period.
 - **Chart** also shows wind power forecast + actuals (MW, right axis) and a "now" line.
 - Total cost = spot + VAT + provider margin + transfer (day/night) + electricity tax + other, optionally plus monthly fees spread per kWh.
 - **Notifications**: WhatsApp (free, via CallMeBot) and email (your own SMTP server).
@@ -36,6 +40,7 @@ Self-hosted monitor for Finnish electricity spot prices (Nord Pool day-ahead, 15
 |---|---|---|
 | Day-ahead prices | [spot-hinta.fi](https://spot-hinta.fi), fallback [porssisahko.net](https://porssisahko.net) | none |
 | Price estimate + wind forecast (~7 days) | [nordpool-predict-fi](https://github.com/vividfog/nordpool-predict-fi) | none |
+| Weather: forecast (16 days), history, place search | [Open-Meteo](https://open-meteo.com) (forecast, archive and geocoding APIs) | none |
 | Official wind forecast + actual production (optional) | [Fingrid Open Data](https://data.fingrid.fi) datasets 245 / 75 | free API key |
 
 The estimate is a machine-learning forecast and can be badly off on volatile days; only the solid line is the real price.
@@ -108,7 +113,7 @@ docker-compose.yml   nginx (static + /api proxy) + app
 docker-compose.portainer.yml  same for Portainer: builds from GitHub, keeps data + web files on the NAS
 setup/Dockerfile     one-shot container that copies web/ and nginx config to the NAS folders
 app/main.py          FastAPI: fetchers, cost calc, alarms, notifications, login (SQLite in ./data)
-web/                 index.html, app.js, style.css (Chart.js), grid.js (Grid View tab), local.js (standalone backend)
+web/                 index.html, app.js, style.css (Chart.js), grid.js (Grid View tab, export), weather.js (weather icons), local.js (standalone backend)
 ElectricityFinland.html  double-click launcher for standalone mode
 run.bat / run.sh     local server launcher (no Docker/nginx)
 run-dev.bat / run-dev.sh  same without login, for testing
