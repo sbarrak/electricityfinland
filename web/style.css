@@ -119,9 +119,9 @@ dialog .preview{margin:0 0 6px}
 @media (max-width:600px){.toolbar .right{margin-left:0}}
 .stat small{padding-right:26px}
 .grid .sw input{width:20px;flex:none}
-/* v4: blue = published up to now, green = fixed future, orange = estimate; red/green limits */
-:root{--fixed:#16a34a;--fixed-bg:rgba(22,163,74,.10);--est:#ea580c;--lo:#16a34a}
-@media (prefers-color-scheme:dark){:root{--fixed:#4ade80;--fixed-bg:rgba(74,222,128,.10);--est:#fb923c;--lo:#4ade80}}
+/* v4: blue = published up to now, violet = fixed future, orange = estimate; red/green limits */
+:root{--fixed:#7c3aed;--fixed-bg:rgba(124,58,237,.08);--est:#ea580c;--lo:#16a34a}
+@media (prefers-color-scheme:dark){:root{--fixed:#a78bfa;--fixed-bg:rgba(167,139,250,.10);--est:#fb923c;--lo:#4ade80}}
 .alarmbar .sw.hi span{color:var(--hi);font-weight:600}
 .alarmbar .sw.lo span{color:var(--lo);font-weight:600}
 .alarmbar .sw.hi input{accent-color:var(--hi)}
@@ -222,7 +222,18 @@ button:disabled{opacity:.45;cursor:default}
   #grid .rn{padding:0 2px}
   .gridbar .gsep{display:none}
 }
-/* v7: weather row (icon + wind m/s) below the time labels, temperature curve, wind power in yellow, weather place, export */
+/* v7: Consumption tab (consumption.js): imported kWh with its cost; import / delete buttons above the chart */
+:root{--cons:#7c3aed;--cons-bg:rgba(124,58,237,.18)}
+@media (prefers-color-scheme:dark){:root{--cons:#a78bfa;--cons-bg:rgba(167,139,250,.20)}}
+.chartcard:not(.consmode) .consonly{display:none}
+.consbar label.btn{display:inline-flex;align-items:center;min-height:36px;padding:4px 12px;border-radius:10px;border:1px solid var(--line);cursor:pointer;font-weight:600}
+.consbar .vh{position:absolute;width:1px;height:1px;min-height:0;padding:0;opacity:0;pointer-events:none}
+.consbar label.btn:focus-within{box-shadow:0 0 0 2px var(--accent)}
+.consbar button{min-height:36px;padding:4px 12px}
+.consbar #cnote{flex:1 1 240px}
+#chelp{margin:0 0 8px}
+#chelp summary{cursor:pointer;color:var(--accent)}
+/* v8: weather row (icon + wind m/s) below the time labels, temperature curve, wind power in yellow, weather place, export */
 :root{--wind:#ca8a04;--wind-bg:rgba(234,179,8,.16);--wind-act:#a16207;--wind-text:#a16207;--t-warm:#e11d48;--t-cold:#0284c7;
 --wx-sun:#f59e0b;--wx-moon:#94a3b8;--wx-cloud:#e2e8f0;--wx-cloud-dark:#94a3b8;--wx-cloud-edge:#64748b;--wx-rain:#2563eb;--wx-snow:#0ea5e9;--wx-bolt:#eab308;--wx-fog:#94a3b8}
 @media (prefers-color-scheme:dark){:root{--wind:#facc15;--wind-bg:rgba(250,204,21,.10);--wind-act:#fde047;--wind-text:#facc15;--t-warm:#fb7185;--t-cold:#38bdf8;

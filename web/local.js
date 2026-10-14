@@ -19,6 +19,7 @@
   const put = (k, v) => { try { localStorage.setItem('elfi_' + k, JSON.stringify(v)); } catch (e) { console.warn('storage', e); } };
   const TABLES = ['prices', 'forecast', 'wind_npf', 'wind_fg', 'wind_actual'];
   const db = Object.fromEntries(TABLES.map(t => [t, get(t, {})]));  // { ts: value }
+  db.consumption = get('consumption', {});  // imported kWh per metering interval, never pruned
   const errors = {};
   // weather of the picked place only (a year of hours fits easily): { loc, from: oldest start asked for, rows: { ts: [code, temp, ms, dir, cloud, mm, snow, day] } }
   let wx = get('weather', { loc: '', from: 0, rows: {} });
@@ -262,7 +263,7 @@
     const wind = [...rows('wind_npf', start).filter(r => !fg.length || r[0] > fgEnd), ...fg].sort((a, b) => a[0] - b[0]);
     const weather = wx.loc === locOf(s) ? Object.entries(wx.rows).map(([k, v]) => [+k, ...v]).filter(r => r[0] >= start).sort((a, b) => a[0] - b[0]) : [];
     return { actual: rows('prices', start), forecast: rows('forecast', start), wind, wind_actual: rows('wind_actual', start), weather,
-      settings: s, schedule: scheduleInfo(s), fingrid: !!s.fingrid_key, errors: Object.values(errors) };
+      consumption: rows('consumption', start), settings: s, schedule: scheduleInfo(s), fingrid: !!s.fingrid_key, errors: Object.values(errors) };
   }
 
   window.LOCAL = {
@@ -306,6 +307,15 @@
         put('settings', Object.fromEntries(Object.entries(s).filter(([k]) => k in DEFAULTS)));
         if (body.fingrid_key) last.f = 0;  // fetch with the new key on the next tick
         return s;
+      }
+      if (p === 'consumption') {  // mirrors /api/consumption in app/main.py
+        if (opts.method === 'DELETE') { db.consumption = {}; put('consumption', {}); return { ok: true }; }
+        const list = Array.isArray(body.rows) ? body.rows : [];
+        if (list.some(r => !Array.isArray(r) || !isFinite(r[0]) || !isFinite(r[1]))) throw new Error('every row must be [unix time, kWh]');
+        list.forEach(([t, v]) => db.consumption[Math.round(t)] = +v);
+        put('consumption', db.consumption);
+        const [a, b] = keyRange('consumption');
+        return { saved: list.length, total: Object.keys(db.consumption).length, first: a, last: b };
       }
       if (p === 'test-notify') {
         const s = settings(), a = Math.floor(now() / 900) * 900;

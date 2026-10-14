@@ -114,6 +114,7 @@ CREATE TABLE IF NOT EXISTS weather(loc TEXT, ts INTEGER, code INTEGER, temp REAL
   snow REAL, day INTEGER, PRIMARY KEY(loc, ts));
 CREATE TABLE IF NOT EXISTS users(id INTEGER PRIMARY KEY AUTOINCREMENT, username TEXT UNIQUE COLLATE NOCASE,
   salt TEXT, hash TEXT, is_admin INTEGER, must_change INTEGER, gen INTEGER);
+CREATE TABLE IF NOT EXISTS consumption(uid INTEGER, ts INTEGER, kwh REAL, PRIMARY KEY(uid, ts));
 """)
 
 
@@ -866,6 +867,7 @@ async def delete_user(uid: int, me_: dict = Depends(admin)):
     db.execute("DELETE FROM users WHERE id=?", (uid,))
     db.execute("DELETE FROM kv WHERE k IN (?, ?, ?) OR k LIKE ? OR k LIKE ?",
                (f"settings:{uid}", f"daily_sent:{uid}", f"last_send:{uid}", f"extra_sent:{uid}:%", f"tries:{uid}:%"))
+    db.execute("DELETE FROM consumption WHERE uid=?", (uid,))
     db.commit()
     return await list_users(me_)
 
@@ -889,6 +891,7 @@ async def data(days_back: int = 60, u: dict = Depends(user)):
             "forecast": q("SELECT ts, spot FROM forecast WHERE ts>=? ORDER BY ts", start),
             "wind": wind, "wind_actual": q("SELECT ts, mw FROM wind WHERE src='actual' AND ts>=? ORDER BY ts", start),
             "weather": q("SELECT ts, code, temp, ms, dir, cloud, mm, snow, day FROM weather WHERE loc=? AND ts>=? ORDER BY ts", loc_of(st), start),
+            "consumption": q("SELECT ts, kwh FROM consumption WHERE uid=? AND ts>=? ORDER BY ts", u["id"], start),
             "settings": public(st), "schedule": schedule_info(u["id"], st), "fingrid": bool(FINGRID_KEY)}
 
 
@@ -997,6 +1000,32 @@ async def put_settings(body: dict, u: dict = Depends(user)):
         raise HTTPException(400, "the weather place must be in Finland")
     kv_set(f"settings:{u['id']}", {k: v for k, v in s.items() if k in DEFAULTS})
     return public(s)
+
+
+@app.post("/api/consumption")
+async def put_consumption(body: dict, u: dict = Depends(user)):
+    """Imported electricity use: [[ts, kWh], ...], one row per metering interval (parsed in the browser, web/consumption.js).
+    Sent in parts, so a big file fits the request size limit of a reverse proxy."""
+    rows, lo, hi = body.get("rows"), 946684800, time.time() + 2 * 86400  # 2000-01-01 … the day after tomorrow
+    if not isinstance(rows, list) or len(rows) > 20000:
+        raise HTTPException(400, "rows must be a list of at most 20000 [time, kWh] pairs")
+    try:
+        clean = [(u["id"], int(t), float(v)) for t, v in rows]
+    except (TypeError, ValueError):
+        raise HTTPException(400, "every row must be [unix time, kWh]")
+    if any(not (lo <= t <= hi and math.isfinite(v) and abs(v) < 1e6) for _, t, v in clean):
+        raise HTTPException(400, "a row has a time or kWh value out of range")
+    db.executemany("REPLACE INTO consumption VALUES(?,?,?)", clean)
+    db.commit()
+    n, a, b = db.execute("SELECT COUNT(*), MIN(ts), MAX(ts) FROM consumption WHERE uid=?", (u["id"],)).fetchone()
+    return {"saved": len(clean), "total": n, "first": a, "last": b}
+
+
+@app.delete("/api/consumption")
+async def delete_consumption(u: dict = Depends(user)):
+    db.execute("DELETE FROM consumption WHERE uid=?", (u["id"],))
+    db.commit()
+    return {"ok": True}
 
 
 @app.post("/api/test-notify")
