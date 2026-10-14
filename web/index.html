@@ -7,7 +7,7 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="theme-color" content="#0f172a">
 <title>Electricity Finland</title>
-<link rel="stylesheet" href="style.css?v=17">
+<link rel="stylesheet" href="style.css?v=18">
 </head>
 <body>
 <div id="fatal" class="fatal hidden"></div>
@@ -56,8 +56,9 @@
       <div class="seg" id="mode"><button data-v="spot">Spot</button><button data-v="total">Total cost</button></div>
       <label class="sw"><input type="checkbox" id="vat"><span>Incl. VAT</span></label>
       <label class="sw"><input type="checkbox" id="avg"><span>Average</span></label>
-      <label class="chartstyle prices-only" title="How the prices are drawn: the line chart, A · bars coloured by your limits with the wind power in its own panel, B · hourly averages with the lowest-to-highest range behind each bar, C · a heatmap with one row per day">Chart
-        <select id="style"><option value="line">Line</option><option value="bars">A · 15-min bars</option><option value="hourly">B · Hourly + range</option><option value="heat">C · Heatmap</option></select></label>
+      <label class="chartstyle prices-only" title="How the prices are shown: A · bars coloured by your limits with the wind power in its own panel, B · hourly averages with the lowest-to-highest range, C · a heatmap with one row per day, D · the coming hours sorted cheapest first, E · the average price of each hour of the day, F · a calendar of daily averages, G · price against wind power">Chart
+        <select id="style"><option value="bars">A · 15-min bars</option><option value="hourly">B · Hourly + range</option><option value="heat">C · Heatmap</option>
+          <option value="ladder">D · Cheapest hours</option><option value="typical">E · Typical day</option><option value="calendar">F · Calendar</option><option value="scatter">G · Price vs wind</option></select></label>
     </div>
     <div class="toolbar alarmbar" id="alarmbar">
       <span class="tlabel">Alarms</span>
@@ -103,19 +104,31 @@
       <table id="grid"><colgroup><col class="cn"><col class="cd"><col class="cp"><col class="ct"><col class="cw"><col class="ctp"><col class="cms"><col class="cwx"><col class="cs"></colgroup>
         <thead></thead><tbody></tbody><tfoot></tfoot></table>
     </div>
-    <div id="heatwrap" class="heatwrap heatonly"><table id="heat"></table></div>
+    <div id="htmlview" class="htmlview htmlonly"></div>
+    <div id="readout" class="readout barsonly" aria-live="polite"></div>
     <div class="plot">
       <div class="chartwrap"><canvas id="chart"></canvas></div>
       <div id="vscroll" class="vscroll"><div></div></div>
     </div>
     <div id="hscroll" class="hscroll"><div></div></div>
     <div class="chartopts">
-      <label class="sw"><input type="checkbox" id="tip"><span>Show data point box</span></label>
+      <label class="sw tipopt"><input type="checkbox" id="tip"><span>Show data point box</span></label>
       <label class="sw prices-only"><input type="checkbox" id="temp"><span>Temperature °C</span></label>
       <label class="sw prices-only"><input type="checkbox" id="wx"><span>Weather</span></label>
       <label class="sw prices-only"><input type="checkbox" id="wind"><span>Wind power</span></label>
     </div>
     <p class="legend"><span id="info"></span> <span id="legend"></span></p>
+  </section>
+
+  <section class="card helper" id="helper">
+    <h3>What would it cost? <small>a device run on the published prices from now on</small></h3>
+    <div class="hrow">
+      <label>Energy <input type="number" id="hKwh" step="0.1" min="0" inputmode="decimal"> kWh</label>
+      <label>Run time <select id="hDur"><option value="0.25">15 min</option><option value="0.5">30 min</option><option value="1">1 h</option><option value="1.5">1.5 h</option>
+        <option value="2">2 h</option><option value="3">3 h</option><option value="4">4 h</option><option value="6">6 h</option><option value="8">8 h</option></select></label>
+      <span id="hPresets" class="hpresets"></span>
+    </div>
+    <div id="hOut" class="hout"></div>
   </section>
 
   <section class="settings" id="settings">
@@ -206,7 +219,7 @@
 <dialog id="colorDialog">
   <form method="dialog">
     <h2>Price Line Colour</h2>
-    <p class="hint">The colour of the published price line. Where the price crosses your limits the line stays red / green.</p>
+    <p class="hint">The colour of the published prices (the bars up to now, and the line in the Estimate vs actual and Consumption tabs). Where the price crosses your limits it stays red / green.</p>
     <div class="swatches" id="swatches"></div>
     <div class="dlgbtns">
       <label class="custom">Custom <input type="color" id="customColor"></label>
@@ -248,6 +261,7 @@
 <script src="local.js?v=15"></script>
 <script src="grid.js?v=2"></script>
 <script src="consumption.js?v=2"></script>
-<script src="app.js?v=25"></script>
+<script src="views.js?v=1"></script>
+<script src="app.js?v=26"></script>
 </body>
 </html>
