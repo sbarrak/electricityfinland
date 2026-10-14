@@ -7,7 +7,7 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="theme-color" content="#0f172a">
 <title>Electricity Finland</title>
-<link rel="stylesheet" href="style.css?v=13">
+<link rel="stylesheet" href="style.css?v=14">
 </head>
 <body>
 <div id="fatal" class="fatal hidden"></div>
@@ -50,7 +50,7 @@
 
   <section class="card chartcard">
     <div class="tabs" id="tabs">
-      <button data-v="prices">Prices</button><button data-v="compare" id="tabCompare">Estimate vs actual</button><button data-v="grid" id="tabGrid">Grid View</button>
+      <button data-v="prices">Prices</button><button data-v="compare" id="tabCompare">Estimate vs actual</button><button data-v="grid" id="tabGrid">Grid View</button><button data-v="consumption" id="tabCons">Consumption</button>
     </div>
     <div class="toolbar">
       <div class="seg" id="mode"><button data-v="spot">Spot</button><button data-v="total">Total cost</button></div>
@@ -89,6 +89,12 @@
       <button type="button" class="ghost" id="gClear" title="Deselect everything (also Esc)" disabled>✕ Deselect</button>
       <span id="gnote" class="hint"></span>
     </div>
+    <div class="toolbar consbar consonly" id="consbar">
+      <label class="btn ghost" title="An Excel (.xlsx) or CSV file with a time and a kWh column, e.g. from OmaOomi or Oma Datahub">⬆ Import consumption<input type="file" id="cFile" accept=".xlsx,.xls,.csv,.txt" class="vh"></label>
+      <button type="button" class="ghost" id="cDel" title="Delete all imported consumption">✕ Delete imported</button>
+      <span id="cnote" class="hint"></span>
+    </div>
+    <details class="hint consonly" id="chelp"><summary>How do I get the file?</summary> <b>Oomi:</b> OmaOomi → Kulutus (Consumption) → pick the address and the period → <b>Lataa (.xls)</b>, then import that file here as it is (the file does not say which address it is for, so check the address before downloading). <b>Any company:</b> log in to <a href="https://oma.datahub.fi" target="_blank" rel="noopener">Oma Datahub</a> (Fingrid's free service, bank ID; it has the meter readings for Oomi and every other Finnish electricity company) and download the consumption of the period you want as a CSV file, with hourly or 15-minute values. An Excel (.xlsx) or CSV export from another service works too. Importing the same period again replaces it. The cost uses the price of each hour or 15 minutes with your Costs settings and the Spot / Total cost and Incl. VAT choices above.</details>
     <div id="gridwrap" class="gridwrap gridonly" tabindex="0" aria-label="Prices table">
       <table id="grid"><colgroup><col class="cn"><col class="cd"><col class="cp"><col class="ct"><col class="cw"><col class="cs"></colgroup>
         <thead></thead><tbody></tbody><tfoot></tfoot></table>
@@ -183,8 +189,9 @@
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js" crossorigin="anonymous"></script>
 <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns@3.0.0/dist/chartjs-adapter-date-fns.bundle.min.js" crossorigin="anonymous"></script>
 <script src="costs.js?v=13"></script>
-<script src="local.js?v=12"></script>
+<script src="local.js?v=13"></script>
 <script src="grid.js?v=1"></script>
-<script src="app.js?v=19"></script>
+<script src="consumption.js?v=2"></script>
+<script src="app.js?v=20"></script>
 </body>
 </html>

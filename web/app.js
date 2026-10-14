@@ -17,6 +17,7 @@ const LOCAL = window.LOCAL;  // set by local.js when opened as a file
 const MAX_DAYS = 2200, DAY = 864e5, MIN_SPAN = 3 * 36e5, BUCKETS = [900, 3600, 10800, 21600, 86400];
 const RES = { 900: '15 min', 3600: '1 h', 10800: '3 h', 21600: '6 h', 86400: '1 day' };
 const NAMES = { spot: 'spot', total: 'total cost' };
+let priced = [], costs = new Map();  // Consumption tab: [[ts, kWh, c/kWh]] and the cost per chart point
 let D = null, S = {}, chart = null, filled = false, loadedDays = 60, bucket = null, avgs = [], tickStep = 1, me = {};
 let mode = store('mode') === 'spot' ? 'spot' : 'total', vat = store('vat') !== '0', avgOn = store('avg') === '1';
 let tab = 'prices', view = null, yZoom = 1, yPos = 0.5, touched = 0, sel = null;  // sel: chart point picked for the breakdown
@@ -267,7 +268,14 @@ function seg(id, cur, fn) {
   return mark;
 }
 seg('mode', mode, v => { store('mode', mode = v); build(); });
-seg('tabs', tab, v => { tab = v; build(); });
+const markTab = seg('tabs', tab, v => {
+  tab = v;
+  const c = D?.consumption;  // the Consumption tab opens on the last week of imported use when none is in view
+  if (v === 'consumption' && c?.length && !c.some(r => r[0] * 1000 >= view.min && r[0] * 1000 < view.max)) {
+    const end = (c.at(-1)[0] + D.consRes) * 1000; view = { min: Math.max(c[0][0] * 1000, end - 7 * DAY), max: end }; $('#preset').value = 'custom';
+  }
+  build();
+});
 const check = (id, cur, fn) => { $('#' + id).checked = cur; $('#' + id).onchange = e => fn(e.target.checked); };
 check('vat', vat, v => { vat = v; store('vat', v ? '1' : '0'); build(); });
 check('avg', avgOn, v => { avgOn = v; store('avg', v ? '1' : '0'); update(); });
@@ -278,6 +286,32 @@ check('tip', tipOn, v => {  // the box with the price of the touched point can c
   if (!v) { chart.setActiveElements([]); chart.tooltip.setActiveElements([], { x: 0, y: 0 }); }  // hide a box that is showing right now
   chart.update('none');
 });
+
+// imported consumption (Consumption tab): read the file, save it in parts, then show its period
+$('#cFile').onchange = async e => {
+  const f = e.target.files[0], note = t => $('#cnote').textContent = t;
+  e.target.value = '';  // the same file can be picked again
+  if (!f) return;
+  try {
+    note(`Reading ${f.name}…`);
+    const r = Consumption.parse(await Consumption.read(f)), N = 5000;
+    for (let i = 0; i < r.rows.length; i += N) {
+      note(`Saving ${r.rows.length} readings… ${Math.round(i / r.rows.length * 100)} %`);
+      await api('consumption', { method: 'POST', body: JSON.stringify({ rows: r.rows.slice(i, i + N).map(([t, v]) => [t, +v.toFixed(5)]) }) });
+    }
+    const a = r.rows[0][0] * 1000, z = (r.rows.at(-1)[0] + r.res) * 1000;
+    await load();
+    tab = 'consumption'; markTab(tab); $('#preset').value = 'custom'; build();
+    await showRange(a, z);  // loads older prices first when the file reaches further back
+    note(`Imported ${r.rows.length} readings of ${RES[r.res] || r.res / 3600 + ' h'}, ${dayFmt(a)} – ${dayFmt(z - 1)}` +
+      (r.notes.length ? ` (${r.notes.join('; ')})` : '') + '.');
+  } catch (err) { note('Import failed: ' + err.message); }
+};
+$('#cDel').onclick = async () => {
+  if (!D?.consumption.length || !confirm('Delete all imported consumption? You can import the file again later.')) return;
+  try { await api('consumption', { method: 'DELETE' }); await load(); $('#cnote').textContent = 'Imported consumption deleted.'; }
+  catch (err) { $('#cnote').textContent = err.message; }
+};
 
 const midnight = (days = 0) => { const d = new Date(); d.setHours(0, 0, 0, 0); d.setDate(d.getDate() + days); return +d; };
 const defaultView = () => ({ min: midnight(-3), max: midnight(3) });
@@ -322,6 +356,8 @@ $$('[data-z]').forEach(b => b.onclick = () => {
 async function load(days = loadedDays) {
   try { D = await api('data?days_back=' + days); } catch (e) { if (e.message !== 'login required') flash('Cannot load data: ' + e.message); return; }
   loadedDays = Math.max(days, 60); S = D.settings;
+  D.consumption ||= []; D.consRes = Consumption.resolution(D.consumption);
+  if (!D.consumption.length) $('#chelp').open = true;  // nothing imported yet: show how to get the file
   if (!filled) { fillSettings(); filled = true; }
   renderSchedule();
   if (!view) view = defaultView();
@@ -334,7 +370,7 @@ const dayFmt = ms => { const d = new Date(ms); return `${WD[d.getDay()]} ${d.get
 const fmt = v => v == null || !isFinite(v) ? '–' : v.toFixed(2);
 const val = r => priceValue(S, r[0], r[1], mode, vat);
 const lastActual = () => D.actual.length ? D.actual.at(-1)[0] : 0;
-const showThr = () => mode === S.alarm_basis && vat === S.alarm_vat;
+const showThr = () => tab !== 'consumption' && mode === S.alarm_basis && vat === S.alarm_vat;
 let limCol = {};  // the colours of the high / low limit lines, read when the chart is built
 // a price at or above the high limit gets the high limit's colour, at or below the low limit green (only while the limit lines show)
 const limitColor = v => v == null || !showThr() ? undefined
@@ -354,9 +390,26 @@ function agg(rows, b, f, tail) {  // [[ts, v]] -> [{x, y}] averaged per bucket o
   return out;
 }
 
+function aggSum(rows, b, f = r => r[1]) {  // [[ts, v]] -> [{x, y}] summed per bucket (b >= the step of the rows); a gap breaks the line
+  const out = []; let key = null, sum = 0;
+  const push = () => { if (key == null) return; const prev = out.at(-1); if (prev && key * 1000 - prev.x > 1.5 * b * 1000) out.push({ x: prev.x + b * 1000, y: null }); out.push({ x: key * 1000, y: sum }); };
+  for (const r of rows) {
+    const k = b === 900 ? r[0] : bucketStart(r[0], b);
+    if (k !== key) { push(); key = k; sum = 0; }
+    sum += f(r);
+  }
+  push();
+  if (out.length) out.push({ x: out.at(-1).x + b * 1000, y: out.at(-1).y });
+  return out;
+}
+
 function extent() {
   const dv = defaultView(), la = lastActual(), first = D.actual.length ? D.actual[0][0] * 1000 : dv.min;
   if (tab === 'compare') return { min: Math.min(first, dv.min), max: la ? (la + 900) * 1000 : dv.max };
+  if (tab === 'consumption' && D.consumption.length) {
+    const c = D.consumption;
+    return { min: Math.min(first, dv.min, c[0][0] * 1000), max: Math.max(dv.max, (la + 900) * 1000, (c.at(-1)[0] + D.consRes) * 1000) };
+  }
   const ends = [la && la + 900, D.forecast.at(-1)?.[0] + 3600, D.wind.at(-1)?.[0]].filter(Boolean).map(t => t * 1000);
   return { min: Math.min(first, dv.min), max: Math.max(dv.max, ...ends) };
 }
@@ -373,6 +426,10 @@ const zoomX = (f, c = (view.min + view.max) / 2) => zoomTo((view.max - view.min)
 function series() {
   const la = lastActual(), price = (label, rows, color, extra) => ({ label, rows, kind: 'price', borderColor: color, ...extra });
   const slot = Math.floor(Date.now() / 9e5) * 900;  // start of the current 15-min slot
+  if (tab === 'consumption') return [
+    { label: 'Consumption kWh', rows: D.consumption, kind: 'kwh', axis: 'y', borderColor: css('--cons'), backgroundColor: css('--cons-bg'), fill: 'origin' },
+    price(`Price (${NAMES[mode]}) c/kWh`, D.actual, css('--accent'), { axis: 'y1' }),
+  ].filter(d => d.rows.length);
   const list = tab === 'compare' ? [
     price('Actual c/kWh', D.actual, css('--accent')),
     price('Estimate before publish c/kWh', D.forecast.filter(r => r[0] <= la), css('--est'), { borderDash: [6, 4] }),
@@ -465,6 +522,7 @@ const overlay = {
 function build() {
   if (!D) return;
   $('.chartcard').classList.toggle('gridmode', tab === 'grid');
+  $('.chartcard').classList.toggle('consmode', tab === 'consumption');
   if (tab === 'grid') {  // the table instead of the chart (grid.js)
     chart?.destroy(); chart = null;
     renderCards(); renderBreakdown();
@@ -478,8 +536,9 @@ function build() {
   const grid = { color: css('--grid') }, ticks = { color: css('--muted') }, small = innerWidth < 600;
   limCol = { hi: css('--hi'), lo: css('--lo') };
   const datasets = series().map(d => ({ ...d, data: [], pointRadius: 0, borderWidth: d.kind === 'wind' ? 1.5 : 2,
-    stepped: d.kind === 'price' ? 'after' : false, yAxisID: d.kind === 'price' ? 'y' : 'y1',
+    stepped: d.kind === 'wind' ? false : 'after', yAxisID: d.axis || (d.kind === 'price' ? 'y' : 'y1'),
     ...d.kind === 'price' && { segment: { borderColor: s => limitColor(s.p0.parsed.y) } } }));  // a step takes the colour of its price
+  const cons = tab === 'consumption';
   chart = new Chart($('#chart'), {
     type: 'line', data: { datasets }, plugins: [overlay],
     options: {
@@ -489,22 +548,25 @@ function build() {
       scales: {
         x: { type: 'time', grid, afterBuildTicks: sc => { sc.ticks = makeTicks(sc.min, sc.max, sc.width || 600); },
           ticks: { ...ticks, autoSkip: false, maxRotation: 0, callback: tickLabel } },
-        y: { grid, ticks: { ...ticks, callback: v => +v.toFixed(1) }, title: { display: !small, text: 'c/kWh', color: ticks.color } },
-        y1: { display: tab !== 'compare', position: 'right', min: 0, grid: { display: false }, ticks,
-          title: { display: !small, text: 'MW', color: ticks.color } },
+        y: { grid, ticks: { ...ticks, callback: v => +v.toFixed(cons ? 2 : 1) }, title: { display: !small, text: cons ? 'kWh' : 'c/kWh', color: ticks.color } },
+        y1: { display: tab !== 'compare', position: 'right', min: cons ? undefined : 0, grid: { display: false }, ticks,
+          title: { display: !small, text: cons ? 'c/kWh' : 'MW', color: ticks.color } },
       },
       plugins: {
         legend: { labels: { color: css('--fg'), boxWidth: 12, font: { size: small ? 10 : 12 } } },
         tooltip: { events: tipEvents(), filter: (it, i, all) => all.findIndex(o => o.datasetIndex === it.datasetIndex) === i, callbacks: {
           title: it => it.length ? `${dayFmt(it[0].parsed.x)} ${hm(it[0].parsed.x)}` + (bucket > 900 ? `–${hm(it[0].parsed.x + bucket * 1000)}` : '') : '',
-          label: c => `${c.dataset.label}: ${c.parsed.y.toFixed(c.dataset.kind === 'price' ? 2 : 0)}` } },
+          label: c => `${c.dataset.label}: ${c.parsed.y == null ? '–' : c.parsed.y.toFixed(c.dataset.kind === 'wind' ? 0 : 2)}`,
+          footer: it => { const k = it.find(i => i.dataset.kind === 'kwh'), e = k && costs.get(k.parsed.x); return e ? `Cost ${e.eur.toFixed(2)} €${e.missing ? ' (some hours have no price)' : ''}` : ''; } } },
       },
     },
   });
-  $('#legend').textContent = tab === 'compare'
+  $('#legend').textContent = cons
+    ? (D.consumption.length ? `· violet = your consumption, kWh per bar (one bar = the Resolution, longer when zoomed out) · blue = price (${NAMES[mode]}, ${vat ? 'incl.' : 'excl.'} VAT) · tap a bar for its cost` : '')
+    : tab === 'compare'
     ? '· solid = published day-ahead price · dashed = estimate made before the price was published'
     : '· blue = published price up to now · violet = published future price (fixed) · orange dashed = estimate (not fixed) · cyan = wind power MW';
-  $('#legend').textContent += ' · where the limit lines show, the price curve is red at or above the high limit and green at or below the low limit';
+  if (!cons) $('#legend').textContent += ' · where the limit lines show, the price curve is red at or above the high limit and green at or below the low limit';
   bucket = null;
   setView(view.min, view.max);
   status();
@@ -512,14 +574,15 @@ function build() {
 
 function yRange() {
   let lo = Infinity, hi = -Infinity;
-  for (const d of chart.data.datasets) if (d.kind === 'price')
-    for (const p of d.data) if (p.x >= view.min - bucket * 1000 && p.x <= view.max) { lo = Math.min(lo, p.y); hi = Math.max(hi, p.y); }
+  for (const d of chart.data.datasets) if (d.yAxisID === 'y')
+    for (const p of d.data) if (p.y != null && p.x >= view.min - bucket * 1000 && p.x <= view.max) { lo = Math.min(lo, p.y); hi = Math.max(hi, p.y); }
   if (!isFinite(lo)) return [0, 10];
   if (showThr()) for (const k of ['high', 'low']) if (S[k + '_on']) { lo = Math.min(lo, S[k]); hi = Math.max(hi, S[k]); }
   const pad = (hi - lo) * 0.08 || 1;
   return [Math.min(0, lo - pad), hi + pad];
 }
 function averages() {  // time-weighted averages of the visible past, fixed-future and estimated prices
+  if (tab === 'consumption') return [];  // the info line has the averages of the used electricity
   const slot = Math.floor(Date.now() / 9e5) * 900, la = lastActual();
   const parts = tab === 'compare'
     ? [['avg actual', D.actual, '--accent'], ['avg estimate', D.forecast.filter(r => r[0] <= la), '--est']]
@@ -538,10 +601,21 @@ function update() {
   if (tab === 'grid' && view) { GridView.render(); $('#from').value = isoDate(view.min); $('#to').value = isoDate(view.max - 1); return; }
   if (!chart || !view) return;
   const W = chart.chartArea?.width || 600, span = view.max - view.min;
-  const b = BUCKETS.find(x => span / 1000 / x <= W / 2) || 86400;
+  let b = BUCKETS.find(x => span / 1000 / x <= W / 2) || 86400;
+  if (tab === 'consumption') b = Math.max(b, D.consRes);  // never finer than the meter readings
   if (b !== bucket) {
     bucket = b;
-    for (const d of chart.data.datasets) d.data = agg(d.rows, b, d.kind === 'price' ? val : r => r[1], d.kind === 'price');
+    for (const d of chart.data.datasets) d.data = d.kind === 'kwh' ? aggSum(d.rows, b) : agg(d.rows, b, d.kind === 'price' ? val : r => r[1], d.kind === 'price');
+    costs = new Map();
+    if (tab === 'consumption') {
+      chart.options.scales.y.title.text = `kWh per ${RES[b]}`;  // what each interval cost: kWh × its price (spot or total cost, with or without VAT, as chosen above)
+      priced = Consumption.priced(D.consumption, D.actual, D.consRes, val);
+      for (const [t, kwh, p] of priced) {
+        const k = (b === 900 ? t : bucketStart(t, b)) * 1000, e = costs.get(k) || { eur: 0, missing: false };
+        if (p == null) e.missing = true; else e.eur += kwh * p / 100;
+        costs.set(k, e);
+      }
+    }
   }
   const markers = span / 1000 / b <= W / 14;  // few enough points in view: draw each data point
   for (const d of chart.data.datasets) {
@@ -561,6 +635,20 @@ function update() {
 function info() {
   let t = `Resolution ${RES[bucket]}`;
   if (avgOn) t += ` · ${avgs.map(a => `${a.name} ${fmt(a.v)}`).join(' · ') || 'no prices in view'} c/kWh (${NAMES[mode]}, ${vat ? 'incl.' : 'excl.'} VAT)`;
+  if (tab === 'consumption') {  // use and cost in view, and what timing the use saved against an even use
+    const a = view.min / 1000, b = view.max / 1000, vis = priced.filter(r => r[0] >= a && r[0] < b);
+    if (!D.consumption.length) t = 'No consumption imported yet: download it from Oma Datahub and use ⬆ Import consumption above.';
+    else if (!vis.length) t += ' · no imported consumption in this period';
+    else {
+      let kwh = 0, pk = 0, eur = 0, ps = 0, n = 0, miss = 0;
+      for (const [, k, p] of vis) { kwh += k; if (p == null) { miss++; continue; } pk += k; eur += k * p / 100; ps += p; n++; }
+      const mine = pk ? eur * 100 / pk : null, even = n ? ps / n : null;
+      t += ` · used ${kwh.toFixed(1)} kWh · cost ${eur.toFixed(2)} € (${NAMES[mode]}, ${vat ? 'incl.' : 'excl.'} VAT)`;
+      if (mine != null) t += ` · you paid on average ${fmt(mine)} c/kWh, the average price was ${fmt(even)}` +
+        (even > 0.5 && Math.abs(mine - even) >= 0.005 ? ` (${mine < even ? 'timing saved' : 'timing cost'} ${Math.abs((1 - mine / even) * 100).toFixed(1)} %)` : '');
+      if (miss) t += ` · ⚠ ${miss} reading${miss === 1 ? '' : 's'} without a price, not in the cost`;
+    }
+  }
   if (tab === 'compare') {  // hourly comparison of estimate vs actual in view
     const hourly = rows => { const m = new Map(); agg(visible(rows), 3600, val).forEach(p => m.set(p.x, p.y)); return m; };
     const a = hourly(D.actual), f = hourly(D.forecast); let n = 0, err = 0, bias = 0;
