@@ -44,6 +44,7 @@ DEFAULTS = {
     "summary_on": True, "extra_time_1": "", "extra_time_2": "", "extra_time_3": "",  # extra send times "HH:MM", empty = off
     "wa_on": True, "email_on": True, "recipients": [], "alerts_v2": False,  # alerts_v2: one-time switch-on of limits/channels done
     "wx_place": "Helsinki", "wx_lat": 60.1699, "wx_lon": 24.9384,  # weather under the chart (a place in Finland)
+    "price_color": "",  # colour of the published price line, "#rrggbb"; empty = the theme default (charcoal)
     # message templates, placeholders: see fill() / web/costs.js. {limit} is the limit, {price} the highest / lowest hourly price
     "msg_high": "⬆️ Above {limit} c/kWh: {weekday} {date} {time}–{end} ({duration}), highest {price}",
     "msg_low": "⬇️ Below {limit} c/kWh: {weekday} {date} {time}–{end} ({duration}), lowest {price}",
@@ -63,6 +64,7 @@ OLD_MSGS = {  # earlier default texts: a saved copy of one of them is replaced b
 }
 EXTRA_TIMES = ("extra_time_1", "extra_time_2", "extra_time_3")
 TIME_RE = re.compile(r"([01]\d|2[0-3]):[0-5]\d")
+COLOR_RE = re.compile(r"#[0-9a-fA-F]{6}")
 
 
 class Result:  # rows already fetched, so nothing touches the connection after its lock is released
@@ -996,6 +998,8 @@ async def put_settings(body: dict, u: dict = Depends(user)):
             raise HTTPException(400, f"invalid value for {k}")
     if s["alarm_basis"] not in ("total", "spot", "transfer") or s["smtp_security"] not in ("starttls", "ssl", "none"):
         raise HTTPException(400, "invalid alarm basis or email security")
+    if s["price_color"] and not COLOR_RE.fullmatch(s["price_color"]):
+        raise HTTPException(400, "invalid price line colour")
     if not in_finland(s["wx_lat"], s["wx_lon"]):
         raise HTTPException(400, "the weather place must be in Finland")
     kv_set(f"settings:{u['id']}", {k: v for k, v in s.items() if k in DEFAULTS})

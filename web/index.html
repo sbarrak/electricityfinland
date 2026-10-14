@@ -7,7 +7,7 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="theme-color" content="#0f172a">
 <title>Electricity Finland</title>
-<link rel="stylesheet" href="style.css?v=15">
+<link rel="stylesheet" href="style.css?v=16">
 </head>
 <body>
 <div id="fatal" class="fatal hidden"></div>
@@ -67,6 +67,7 @@
       <label class="sw"><input type="checkbox" data-k="alarm_vat"><span>incl. VAT</span></label>
       <label class="sw" title="Send the scheduled messages to every recipient with a WhatsApp number and key"><input type="checkbox" data-k="wa_on" checked><span>WhatsApp alerts</span></label>
       <label class="sw" title="Send the scheduled messages to every recipient with an email address"><input type="checkbox" data-k="email_on" checked><span>Email alerts</span></label>
+      <button type="button" class="swatchbtn" id="lineColorBtn" title="Price line colour: the colour of the published price line in the chart" aria-label="Price line colour"><span></span></button>
     </div>
     <div class="toolbar">
       <select id="preset">
@@ -199,6 +200,19 @@
   </form>
 </dialog>
 
+<dialog id="colorDialog">
+  <form method="dialog">
+    <h2>Price Line Colour</h2>
+    <p class="hint">The colour of the published price line. Where the price crosses your limits the line stays red / green.</p>
+    <div class="swatches" id="swatches"></div>
+    <div class="dlgbtns">
+      <label class="custom">Custom <input type="color" id="customColor"></label>
+      <span class="right"></span>
+      <button type="button" class="ghost" id="colorCancel">Cancel</button>
+    </div>
+  </form>
+</dialog>
+
 <dialog id="expDialog">
   <form method="dialog" id="expForm">
     <h2>Export prices</h2>
@@ -228,9 +242,9 @@
 <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns@3.0.0/dist/chartjs-adapter-date-fns.bundle.min.js" crossorigin="anonymous"></script>
 <script src="costs.js?v=13"></script>
 <script src="weather.js?v=1"></script>
-<script src="local.js?v=14"></script>
+<script src="local.js?v=15"></script>
 <script src="grid.js?v=2"></script>
 <script src="consumption.js?v=2"></script>
-<script src="app.js?v=23"></script>
+<script src="app.js?v=24"></script>
 </body>
 </html>

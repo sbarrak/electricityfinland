@@ -255,3 +255,16 @@ button:disabled{opacity:.45;cursor:default}
 .expgrid label.sw{display:flex;color:var(--fg);font-size:1em;min-height:40px}
 #expKind{flex-wrap:wrap;justify-self:start}
 #expKind button{min-height:36px}
+/* price line: charcoal by default (no hue, so the red / green limit colours stand out); the user can pick another */
+:root{--price-line:#1f2937}
+@media (prefers-color-scheme:dark){:root{--price-line:#e5e7eb}}
+.swatchbtn{width:26px;height:26px;min-height:0;padding:2px;border-radius:8px;border:1px solid var(--line);background:var(--card);cursor:pointer;flex:none}
+.swatchbtn span{display:block;width:100%;height:100%;border-radius:5px;background:var(--price-line)}
+.swatches{display:grid;grid-template-columns:repeat(auto-fill,minmax(64px,1fr));gap:10px;margin:6px 0}
+.swatches button{min-height:0;display:grid;justify-items:center;gap:4px;padding:6px 2px;border:1px solid transparent;border-radius:10px;background:none;color:var(--muted);font-size:.75em;cursor:pointer}
+.swatches button:hover,.swatches button:focus-visible{border-color:var(--line);background:var(--bg)}
+.swatches button.on{border-color:var(--fg)}
+.swatches i{display:block;width:34px;height:34px;border-radius:8px;border:1px solid var(--line)}
+.swatches .auto i{background:linear-gradient(135deg,#1f2937 50%,#e5e7eb 50%)}
+dialog label.custom{display:flex;align-items:center;gap:6px;color:var(--fg)}
+dialog label.custom input{width:36px;height:28px;padding:0;border:0;background:none;cursor:pointer}
