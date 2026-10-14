@@ -485,13 +485,14 @@ function series() {
     price('Actual c/kWh', D.actual, css('--accent')),
     price('Estimate before publish c/kWh', D.forecast.filter(r => r[0] <= la), css('--est'), { borderDash: [6, 4] }),
   ] : [
-    price('Price c/kWh', D.actual.filter(r => r[0] <= slot), css('--accent'), { fill: 'origin', backgroundColor: css('--accent-bg') }),
-    price('Fixed future price c/kWh', D.actual.filter(r => r[0] >= slot), css('--fixed'), { fill: 'origin', backgroundColor: css('--fixed-bg') }),
+    price('Price c/kWh', D.actual.filter(r => r[0] <= slot), css('--accent')),  // no shade under the prices: only the wind power is shaded
+    price('Fixed future price c/kWh', D.actual.filter(r => r[0] >= slot), css('--fixed')),
     price('Estimate (not fixed) c/kWh', D.forecast.filter(r => r[0] > la), css('--est'), { borderDash: [6, 4] }),
     { label: 'Wind forecast MW', rows: D.wind, kind: 'wind', borderColor: css('--wind'), backgroundColor: css('--wind-bg'), fill: 'origin', tension: .3 },
     { label: 'Wind actual MW', rows: D.wind_actual, kind: 'wind', borderColor: css('--wind-act') },
   ];
-  if (showTemp()) list.push({ label: 'Temperature °C', rows: D.wx.map(w => [w.t, w.temp]), kind: 'temp', borderColor: tempColor, tension: .35, borderWidth: 2.5 });
+  if (showTemp()) list.push({ label: 'Temperature °C', rows: D.wx.map(w => [w.t, w.temp]), kind: 'temp', borderColor: tempColor, tension: .35, borderWidth: 2.5,
+    borderDash: [1, 5], borderCapStyle: 'round' });  // dotted, so it does not look like a price line (the estimate is dashed)
   return list.filter(d => d.rows.length);
 }
 
@@ -694,7 +695,7 @@ function build() {
   $('#legend').textContent = tab === 'compare'
     ? '· solid = published day-ahead price · dashed = estimate made before the price was published'
     : '· blue = published price up to now · green = published future price (fixed) · orange dashed = estimate (not fixed) · yellow = wind power MW' +
-      (showTemp() ? ' · temperature °C: red above 0, blue below' : '') + (showWx() ? ` · under the time: weather and wind m/s in ${S.wx_place}` : '');
+      (showTemp() ? ' · dotted = temperature °C, red above 0, blue below' : '') + (showWx() ? ` · under the time: weather and wind m/s in ${S.wx_place}` : '');
   bucket = null;
   setView(view.min, view.max);
   status();
