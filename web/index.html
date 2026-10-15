@@ -5,11 +5,14 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<meta name="theme-color" content="#0f172a">
+<meta name="theme-color" content="#0a1120">
 <title>Electricity Finland</title>
-<link rel="stylesheet" href="style.css?v=18">
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&family=Geist:wght@400;500;600;700&family=Geist+Mono:wght@400;500&family=Hanken+Grotesk:wght@300;400;500;600;700&display=swap">
+<link rel="stylesheet" href="style.css?v=19">
+<link rel="stylesheet" href="layout.css?v=1">
 </head>
-<body>
+<body data-layout="signal">
 <div id="fatal" class="fatal hidden"></div>
 <div id="loading" class="screen"><p class="hint">Loading…</p></div>
 <div id="login" class="screen hidden">
@@ -38,42 +41,48 @@
 </div>
 
 <div id="main" class="hidden">
-  <header>
-    <h1>⚡ Spot price FI</h1>
-    <button id="refresh" class="ghost" title="Fetch the latest prices now">⟳ Refresh prices</button>
-    <span id="who" class="hint"></span>
-    <button id="account" class="ghost">Account</button>
-    <button id="logout" class="ghost">Log out</button>
-  </header>
+ <div class="shell">
+  <!-- Studio: sidebar on a desktop, icon rail on a tablet -->
+  <aside class="side" aria-label="Sections">
+    <a class="brand" href="#now"><span class="mark" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M13 2L4.5 13.5H11L10 22l8.5-11.5H12L13 2z"/></svg></span><b>Spot price FI</b></a>
+    <nav class="sidenav" data-navlist></nav>
+    <p class="side-foot" id="sideStatus"></p>
+  </aside>
+  <div class="body">
+    <header class="top">
+      <a class="brand" href="#now"><span class="mark" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M13 2L4.5 13.5H11L10 22l8.5-11.5H12L13 2z"/></svg></span><b>Spot price FI</b></a>
+      <h1 class="ptitle" id="ptitle">Now</h1>
+      <nav class="topnav" data-navlist aria-label="Sections"></nav>
+      <span class="sp"></span>
+      <!-- one price basis for the whole page: inline on larger screens, a pill that opens it on a phone -->
+      <button type="button" class="basis-pill" id="basisBtn" aria-expanded="false" aria-controls="basis"></button>
+      <div class="basis" id="basis">
+        <div class="seg" id="mode" role="group" aria-label="Price shown"><button type="button" data-v="spot">Spot</button><button type="button" data-v="total">Total cost</button></div>
+        <label class="sw"><input type="checkbox" id="vat"><span>Incl. VAT</span></label>
+      </div>
+      <button id="refresh" type="button" class="ghost iconbtn" title="Fetch the latest prices now" aria-label="Refresh prices"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 12a8 8 0 1 1-2.3-5.6M20 4v4h-4"/></svg></button>
+    </header>
 
-  <section class="cards" id="cards"></section>
+    <main>
+      <!-- NOW: drawn by home.js in the chosen layout (Signal, Studio or Calm) -->
+      <section class="page" data-page="now"><div id="home"></div></section>
 
+      <!-- EXPLORE: the full chart, the other chart styles, Estimate vs actual and the Grid View -->
+      <section class="page" data-page="explore" hidden>
+        <div class="explore-grid">
+          <div class="chartslot" id="exploreSlot">
   <section class="card chartcard">
     <div class="tabs" id="tabs">
       <button data-v="prices">Prices</button><button data-v="compare" id="tabCompare">Estimate vs actual</button><button data-v="grid" id="tabGrid">Grid View</button><button data-v="consumption" id="tabCons">Consumption</button>
     </div>
     <div class="toolbar">
-      <div class="seg" id="mode"><button data-v="spot">Spot</button><button data-v="total">Total cost</button></div>
-      <label class="sw"><input type="checkbox" id="vat"><span>Incl. VAT</span></label>
-      <label class="sw"><input type="checkbox" id="avg"><span>Average</span></label>
-      <label class="chartstyle prices-only" title="How the prices are shown: A · bars coloured by your limits with the wind power in its own panel, B · hourly averages with the lowest-to-highest range, C · a heatmap with one row per day, D · the coming hours sorted cheapest first, E · the average price of each hour of the day, F · a calendar of daily averages, G · price against wind power">Chart
+      <label class="chartstyle prices-only" title="How the prices are shown: A · bars coloured by your limits with the wind power in its own panel, B · hourly averages with the lowest-to-highest range, C · a heatmap with one row per day, D · the coming hours sorted cheapest first, E · the average price of each hour of the day, F · a calendar of daily averages, G · price against wind power">View
         <select id="style"><option value="bars">A · 15-min bars</option><option value="hourly">B · Hourly + range</option><option value="heat">C · Heatmap</option>
           <option value="ladder">D · Cheapest hours</option><option value="typical">E · Typical day</option><option value="calendar">F · Calendar</option><option value="scatter">G · Price vs wind</option></select></label>
-    </div>
-    <div class="toolbar alarmbar" id="alarmbar">
-      <span class="tlabel">Alarms</span>
-      <label class="sw hi"><input type="checkbox" data-k="high_on" checked><span>🔴 Above</span></label>
-      <input type="number" step="0.1" data-k="high" inputmode="decimal"><span class="u">c/kWh</span>
-      <label class="sw lo"><input type="checkbox" data-k="low_on" checked><span>🟢 Below</span></label>
-      <input type="number" step="0.1" data-k="low" inputmode="decimal"><span class="u">c/kWh</span>
-      <select data-k="alarm_basis"><option value="total">on total cost</option><option value="spot">on spot</option></select>
-      <label class="sw"><input type="checkbox" data-k="alarm_vat"><span>incl. VAT</span></label>
-      <label class="sw" title="Send the scheduled messages to every recipient with a WhatsApp number and key"><input type="checkbox" data-k="wa_on" checked><span>WhatsApp alerts</span></label>
-      <label class="sw" title="Send the scheduled messages to every recipient with an email address"><input type="checkbox" data-k="email_on" checked><span>Email alerts</span></label>
-      <button type="button" class="swatchbtn" id="lineColorBtn" title="Price line colour: the colour of the published price line in the chart" aria-label="Price line colour"><span></span></button>
+      <label class="sw"><input type="checkbox" id="avg"><span>Average</span></label>
     </div>
     <div class="toolbar">
-      <select id="preset">
+      <select id="preset" aria-label="Period">
         <option value="default">−3 days … +2 days</option><option value="7">Last week</option><option value="30">Last month</option>
         <option value="91">Last 3 months</option><option value="365">Last year</option><option value="custom" hidden>Custom</option>
       </select>
@@ -99,7 +108,7 @@
       <button type="button" class="ghost" id="cDel" title="Delete all imported consumption">✕ Delete imported</button>
       <span id="cnote" class="hint"></span>
     </div>
-    <details class="hint consonly" id="chelp"><summary>How do I get the file?</summary> <b>Oomi:</b> OmaOomi → Kulutus (Consumption) → pick the address and the period → <b>Lataa (.xls)</b>, then import that file here as it is (the file does not say which address it is for, so check the address before downloading). <b>Any company:</b> log in to <a href="https://oma.datahub.fi" target="_blank" rel="noopener">Oma Datahub</a> (Fingrid's free service, bank ID; it has the meter readings for Oomi and every other Finnish electricity company) and download the consumption of the period you want as a CSV file, with hourly or 15-minute values. An Excel (.xlsx) or CSV export from another service works too. Importing the same period again replaces it. The cost uses the price of each hour or 15 minutes with your Costs settings and the Spot / Total cost and Incl. VAT choices above.</details>
+    <details class="hint consonly" id="chelp"><summary>How do I get the file?</summary> <b>Oomi:</b> OmaOomi → Kulutus (Consumption) → pick the address and the period → <b>Lataa (.xls)</b>, then import that file here as it is (the file does not say which address it is for, so check the address before downloading). <b>Any company:</b> log in to <a href="https://oma.datahub.fi" target="_blank" rel="noopener">Oma Datahub</a> (Fingrid's free service, bank ID; it has the meter readings for Oomi and every other Finnish electricity company) and download the consumption of the period you want as a CSV file, with hourly or 15-minute values. An Excel (.xlsx) or CSV export from another service works too. Importing the same period again replaces it. The cost uses the price of each hour or 15 minutes with your Costs settings and the Spot / Total cost and Incl. VAT choices at the top.</details>
     <div id="gridwrap" class="gridwrap gridonly" tabindex="0" aria-label="Prices table">
       <table id="grid"><colgroup><col class="cn"><col class="cd"><col class="cp"><col class="ct"><col class="cw"><col class="ctp"><col class="cms"><col class="cwx"><col class="cs"></colgroup>
         <thead></thead><tbody></tbody><tfoot></tfoot></table>
@@ -117,9 +126,126 @@
       <label class="sw prices-only"><input type="checkbox" id="wx"><span>Weather</span></label>
       <label class="sw prices-only"><input type="checkbox" id="wind"><span>Wind power</span></label>
     </div>
-    <p class="legend"><span id="info"></span> <span id="legend"></span></p>
+    <p class="infoline" id="info"></p>
+    <details class="legend"><summary>What the colours mean</summary><p id="legend"></p></details>
   </section>
+          </div>
+          <aside class="card" id="breakdown"></aside>
+        </div>
+      </section>
 
+      <!-- USAGE: the same chart card, on its Consumption tab (moved here by home.js) -->
+      <section class="page" data-page="usage" hidden>
+        <p class="lede">Import your consumption from OmaOomi or Oma Datahub and see what it cost, hour by hour.</p>
+        <div class="chartslot" id="usageSlot"></div>
+      </section>
+
+      <!-- ALERTS: limits, channels, recipients, schedule, messages -->
+      <section class="page" data-page="alerts" hidden>
+        <div class="alerts-grid">
+          <div class="card statuscard" id="schedInfo"></div>
+          <div class="card group autosave" id="alarmbar">
+            <h3>Price limits <small>the alerts and the red / green colours</small></h3>
+            <div class="row"><label class="sw hi grow"><input type="checkbox" data-k="high_on" checked><span><b>High price</b><small>Red bars and ▲ at or above</small></span></label>
+              <span class="in"><input type="number" step="0.1" data-k="high" inputmode="decimal" aria-label="High limit"><em>c/kWh</em></span></div>
+            <div class="row"><label class="sw lo grow"><input type="checkbox" data-k="low_on" checked><span><b>Low price</b><small>Green bars and ▼ at or below</small></span></label>
+              <span class="in"><input type="number" step="0.1" data-k="low" inputmode="decimal" aria-label="Low limit"><em>c/kWh</em></span></div>
+            <div class="row"><span class="grow"><b>Compare on</b><small>Kept apart from the price shown at the top, so the colours stay put</small></span>
+              <select data-k="alarm_basis" aria-label="Compare the limits on"><option value="total">total cost</option><option value="spot">spot</option></select>
+              <label class="sw"><input type="checkbox" data-k="alarm_vat"><span>incl. VAT</span></label></div>
+            <h3>Channels</h3>
+            <div class="row"><label class="sw grow" title="Send the scheduled messages to every recipient with a WhatsApp number and key"><input type="checkbox" data-k="wa_on" checked><span><b>WhatsApp</b><small>To every recipient with a phone and a CallMeBot key</small></span></label></div>
+            <div class="row"><label class="sw grow" title="Send the scheduled messages to every recipient with an email address"><input type="checkbox" data-k="email_on" checked><span><b>Email</b><small>To every recipient with an address, through your email server</small></span></label></div>
+          </div>
+          <div class="card group autosave" id="schedCard">
+            <h3>Schedule <small>Finnish time</small></h3>
+            <p class="hint">A message with the fixed prices from 14:00 to 14:00 tomorrow is sent every day at <b>14:00</b> (as soon as Nord Pool publishes them). Add up to 3 more times. Before 14:00 the hours after midnight are estimates, marked ~.</p>
+            <div class="grid" id="notif"></div>
+            <div class="timesbox">
+              <p class="hint"><b>Extra send times</b> (<span id="tzNote">Finnish time</span>). ✕ turns a time off.</p>
+              <div class="times">
+                <div class="tbox"><div class="thead"><span>Time 1</span><button type="button" class="clr" data-clr="extra_time_1" aria-label="Turn off time 1" title="Turn off">✕</button></div><input type="time" data-k="extra_time_1" aria-label="Extra send time 1"></div>
+                <div class="tbox"><div class="thead"><span>Time 2</span><button type="button" class="clr" data-clr="extra_time_2" aria-label="Turn off time 2" title="Turn off">✕</button></div><input type="time" data-k="extra_time_2" aria-label="Extra send time 2"></div>
+                <div class="tbox"><div class="thead"><span>Time 3</span><button type="button" class="clr" data-clr="extra_time_3" aria-label="Turn off time 3" title="Turn off">✕</button></div><input type="time" data-k="extra_time_3" aria-label="Extra send time 3"></div>
+              </div>
+            </div>
+          </div>
+          <div class="card group wide autosave" id="recipCard">
+            <h3>Recipients <small>everyone in the list gets every scheduled message</small></h3>
+            <div id="recips"></div>
+            <button id="addRecip" class="ghost" type="button">+ Add recipient</button>
+            <p class="hint">WhatsApp goes to rows with a phone and key, email to rows with an address. The tick box at the start of a row is <b>only</b> for tests: it selects who gets the test from <b>Send WhatsApp</b> / <b>Send email</b>. WhatsApp uses <a href="https://www.callmebot.com/blog/free-api-whatsapp-messages/" target="_blank" rel="noopener">CallMeBot</a>: each person sends “I allow callmebot to send me messages” to +34 644 51 95 23 from their phone and gets their own API key.</p>
+            <div class="tests">
+              <button class="ghost openMsg" type="button">✉ Customize messages</button>
+              <button class="ghost test" data-ch="whatsapp" type="button">💬 Send WhatsApp</button>
+              <button class="ghost test" data-ch="email" type="button">✉️ Send email</button>
+            </div>
+            <p class="hint testOut"></p>
+          </div>
+        </div>
+      </section>
+
+      <!-- SETTINGS: layout, costs, weather place, email server, users, account -->
+      <section class="page" data-page="settings" hidden>
+        <div class="settings autosave" id="settings">
+          <div class="card wide" id="layoutCard">
+            <h3>Layout <small>saved for your user · the other users keep their own</small></h3>
+            <div class="layouts" role="radiogroup" aria-label="Layout">
+              <label class="lay"><input type="radio" name="ui_layout" value="signal"><span class="pv pv-signal" aria-hidden="true"><i class="ring"></i><i class="l1"></i><i class="l2"></i><i class="l3"></i></span><b>Signal <em>default</em></b><small>The day as a 24-hour dial, the cheapest 1, 3 and 6 hours, the next 48 hours.</small></label>
+              <label class="lay"><input type="radio" name="ui_layout" value="studio"><span class="pv pv-studio" aria-hidden="true"><i class="sb"></i><i class="kp"></i><i class="ch"></i><i class="in"></i></span><b>Studio</b><small>A workspace: sidebar, key numbers in one strip, chart with the price breakdown beside it.</small></label>
+              <label class="lay"><input type="radio" name="ui_layout" value="calm"><span class="pv pv-calm" aria-hidden="true"><i class="big"></i><i class="tx"></i><i class="ch"></i></span><b>Calm</b><small>The price now, large, with one plain sentence and the day's bars.</small></label>
+            </div>
+            <div class="row"><span class="grow"><b>Published price colour</b><small>The bars up to now, and the line in Estimate vs actual and Consumption. Red and green stay reserved for your limits.</small></span>
+              <button type="button" class="swatchbtn" id="lineColorBtn" title="Price line colour" aria-label="Price line colour"><span></span></button></div>
+          </div>
+          <details class="card" open>
+            <summary>Costs <small>c/kWh incl. VAT · saved automatically</small></summary>
+            <div class="grid" id="costs"></div>
+          </details>
+          <details class="card" open>
+            <summary>Monthly fees <small>€ / month · saved automatically</small></summary>
+            <div class="grid" id="monthly"></div>
+            <p class="hint" id="monthlyInfo"></p>
+          </details>
+          <details class="card" id="wxCard" open>
+            <summary>Weather <small>a place in Finland · <a href="https://open-meteo.com" target="_blank" rel="noopener">Open-Meteo</a></small></summary>
+            <p class="hint">Weather, temperature and wind m/s under the chart and in the Grid View are for <b id="wxPlace">Helsinki</b>.</p>
+            <label class="wxsearch">Change place<input type="search" id="wxQ" placeholder="Town or village, e.g. Tampere" autocomplete="off" enterkeyhint="search"></label>
+            <div id="wxList" class="wxlist"></div>
+            <p class="hint" id="wxMsg"></p>
+          </details>
+          <details class="card" id="smtpCard">
+            <summary>Email server <small>SMTP relay</small></summary>
+            <div class="grid" id="smtp"></div>
+            <p class="hint" id="emailHint">Messages are sent through this server with your relay username and password. Leave the password empty to keep the saved one.</p>
+            <button class="ghost test" data-ch="email" type="button">Test email to selected</button> <span class="hint testOut"></span>
+          </details>
+          <details class="card hidden" id="usersCard">
+            <summary>Users <small>admin only</small></summary>
+            <div id="userList"></div>
+            <div class="adduser">
+              <input id="nuName" placeholder="New username" autocomplete="off" autocapitalize="none">
+              <input id="nuPw" placeholder="Temporary password (min 8)" autocomplete="off">
+              <button type="button" id="nuAdd">Add user</button>
+            </div>
+            <p class="hint">A new user logs in with the temporary password and then chooses their own. Every user has their own recipients, email server, alarms, messages, costs and layout.</p>
+            <p class="hint" id="nuMsg"></p>
+            <p class="err" id="nuErr"></p>
+          </details>
+          <div class="card" id="accountCard">
+            <h3>Account</h3>
+            <p id="who" class="hint"></p>
+            <div class="tests"><button id="account" type="button" class="ghost">Change username or password</button><button id="logout" type="button" class="ghost">Log out</button></div>
+          </div>
+        </div>
+      </section>
+    </main>
+    <footer id="status"></footer>
+  </div>
+ </div>
+ <nav class="tabbar" data-navlist aria-label="Sections"></nav>
+ <!-- the cost helper waits here until home.js puts it on the Now page -->
+ <div id="parking" hidden>
   <section class="card helper" id="helper">
     <h3>What would it cost? <small>a device run on the published prices from now on</small></h3>
     <div class="hrow">
@@ -130,74 +256,18 @@
     </div>
     <div id="hOut" class="hout"></div>
   </section>
-
-  <section class="settings" id="settings">
-    <details class="card" open>
-      <summary>Costs <small>c/kWh incl. VAT · saved automatically</small></summary>
-      <div class="grid" id="costs"></div>
-    </details>
-    <details class="card" open>
-      <summary>Monthly fees <small>€ / month · saved automatically</small></summary>
-      <div class="grid" id="monthly"></div>
-      <p class="hint" id="monthlyInfo"></p>
-    </details>
-    <div class="card" id="breakdown"></div>
-    <details class="card" id="wxCard" open>
-      <summary>Weather <small>a place in Finland · <a href="https://open-meteo.com" target="_blank" rel="noopener">Open-Meteo</a></small></summary>
-      <p class="hint">Weather, temperature and wind m/s under the chart and in the Grid View are for <b id="wxPlace">Helsinki</b>.</p>
-      <label class="wxsearch">Change place<input type="search" id="wxQ" placeholder="Town or village, e.g. Tampere" autocomplete="off" enterkeyhint="search"></label>
-      <div id="wxList" class="wxlist"></div>
-      <p class="hint" id="wxMsg"></p>
-    </details>
-    <details class="card wide">
-      <summary>Recipients <small>WhatsApp / email</small></summary>
-      <div id="recips"></div>
-      <button id="addRecip" class="ghost" type="button">+ Add recipient</button>
-      <p class="hint">Every recipient in the list gets the scheduled messages: WhatsApp when the phone and key are filled in, email when the address is filled in. The tick box at the start of a row is <b>only</b> for tests: it selects who gets the test from <b>Send WhatsApp</b> / <b>Send email</b>. WhatsApp uses <a href="https://www.callmebot.com/blog/free-api-whatsapp-messages/" target="_blank" rel="noopener">CallMeBot</a>: each person sends “I allow callmebot to send me messages” to +34 644 51 95 23 from their phone and gets their own API key.</p>
-      <div class="grid" id="notif"></div>
-      <div class="timesbox">
-        <p class="hint"><b>Extra send times</b> (<span id="tzNote">Finnish time</span>). The 14:00 message is always sent; add up to 3 more times. Every recipient in the list gets them. ✕ turns a time off.</p>
-        <div class="times">
-          <div class="tbox"><div class="thead"><span>Time 1</span><button type="button" class="clr" data-clr="extra_time_1" aria-label="Turn off time 1" title="Turn off">✕</button></div><input type="time" data-k="extra_time_1" aria-label="Extra send time 1"></div>
-          <div class="tbox"><div class="thead"><span>Time 2</span><button type="button" class="clr" data-clr="extra_time_2" aria-label="Turn off time 2" title="Turn off">✕</button></div><input type="time" data-k="extra_time_2" aria-label="Extra send time 2"></div>
-          <div class="tbox"><div class="thead"><span>Time 3</span><button type="button" class="clr" data-clr="extra_time_3" aria-label="Turn off time 3" title="Turn off">✕</button></div><input type="time" data-k="extra_time_3" aria-label="Extra send time 3"></div>
-        </div>
-      </div>
-      <div id="schedInfo"></div>
-      <div class="tests">
-        <button class="ghost openMsg" type="button">✉ Customize messages</button>
-        <button class="ghost test" data-ch="whatsapp" type="button">💬 Send WhatsApp</button>
-        <button class="ghost test" data-ch="email" type="button">✉️ Send email</button>
-      </div>
-      <p class="hint testOut"></p>
-    </details>
-    <details class="card" id="smtpCard">
-      <summary>Email server <small>SMTP relay</small></summary>
-      <div class="grid" id="smtp"></div>
-      <p class="hint" id="emailHint">Messages are sent through this server with your relay username and password. Leave the password empty to keep the saved one.</p>
-      <button class="ghost test" data-ch="email" type="button">Test email to selected</button> <span class="hint testOut"></span>
-    </details>
-    <details class="card hidden" id="usersCard">
-      <summary>Users <small>admin only</small></summary>
-      <div id="userList"></div>
-      <div class="adduser">
-        <input id="nuName" placeholder="New username" autocomplete="off" autocapitalize="none">
-        <input id="nuPw" placeholder="Temporary password (min 8)" autocomplete="off">
-        <button type="button" id="nuAdd">Add user</button>
-      </div>
-      <p class="hint">A new user logs in with the temporary password and then chooses their own. Every user has their own recipients, email server, alarms, messages and costs.</p>
-      <p class="hint" id="nuMsg"></p>
-      <p class="err" id="nuErr"></p>
-    </details>
-  </section>
-  <footer id="status"></footer>
+ </div>
 </div>
+
+<dialog id="sheet" class="sheet" aria-labelledby="sheetTitle">
+  <form method="dialog"><header><h2 id="sheetTitle"></h2><button class="ghost iconbtn" value="close" aria-label="Close">✕</button></header><div id="sheetBody"></div></form>
+</dialog>
 
 <dialog id="msgDialog">
   <form method="dialog" id="msgForm">
     <h2>Messages</h2>
     <p class="hint">Placeholders for the period lines: <code id="phAlarm"></code><br>Placeholders for the summary: <code id="phSummary"></code></p>
-    <p class="hint">A message is sent every day at 14:00 and at the extra times under Recipients, to every recipient in the list. It has a summary, then the hourly prices. When the price is at or above the high limit or at or below the low limit (switched on above the chart), one highlighted line is added for each such period and those hours are marked in the list. Extra times before 14:00 cover the time until midnight, because the next day is not fixed yet.</p>
+    <p class="hint">A message is sent every day at 14:00 and at the extra times under Alerts, to every recipient in the list. It has a summary, then the hourly prices. When the price is at or above the high limit or at or below the low limit, one highlighted line is added for each such period and those hours are marked in the list. Extra times before 14:00 cover the time until midnight, because the next day is not fixed yet.</p>
     <label>Line for a period at or above the high limit<textarea data-m="msg_high" rows="2"></textarea></label>
     <p class="hint preview" data-p="msg_high"></p>
     <label>Line for a period at or below the low limit<textarea data-m="msg_low" rows="2"></textarea></label>
@@ -258,10 +328,11 @@
 <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns@3.0.0/dist/chartjs-adapter-date-fns.bundle.min.js" crossorigin="anonymous"></script>
 <script src="costs.js?v=13"></script>
 <script src="weather.js?v=1"></script>
-<script src="local.js?v=15"></script>
+<script src="local.js?v=16"></script>
 <script src="grid.js?v=2"></script>
 <script src="consumption.js?v=2"></script>
 <script src="views.js?v=1"></script>
-<script src="app.js?v=26"></script>
+<script src="home.js?v=1"></script>
+<script src="app.js?v=27"></script>
 </body>
 </html>

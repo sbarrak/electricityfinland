@@ -12,7 +12,7 @@
     vat: 25.5, margin: 0, transfer_day: 0, transfer_night: 0, night_start: 22, night_end: 7, tax: 2.827, other: 0,
     monthly_provider: 0, monthly_transfer: 0, monthly_kwh: 0, spread_monthly: false,
     alarm_basis: 'total', alarm_vat: true, high_on: true, high: 20, low_on: true, low: 2, summary_on: true, extra_time_1: '', extra_time_2: '', extra_time_3: '', ...MSG_DEFAULTS,
-    wa_on: true, email_on: true, recipients: [], alerts_v2: false, wx_place: 'Helsinki', wx_lat: 60.1699, wx_lon: 24.9384, price_color: '',
+    wa_on: true, email_on: true, recipients: [], alerts_v2: false, wx_place: 'Helsinki', wx_lat: 60.1699, wx_lon: 24.9384, price_color: '', ui_layout: 'signal',
     ejs_service: '', ejs_template: '', ejs_key: '', fingrid_key: '',
   };
   const get = (k, d) => { try { return JSON.parse(localStorage.getItem('elfi_' + k)) ?? d; } catch { return d; } };
@@ -303,6 +303,7 @@
           if (/^extra_time_/.test(k) && v && !/^([01]\d|2[0-3]):[0-5]\d$/.test(v)) throw new Error('invalid value for ' + k);
           s[k] = Array.isArray(d) ? v.slice(0, 20).map(clean) : typeof d === 'boolean' ? !!v : typeof d === 'number' ? +v : String(v);
           if (Number.isNaN(s[k])) throw new Error('invalid value for ' + k);
+          if (k === 'ui_layout' && !['signal', 'studio', 'calm'].includes(s[k])) throw new Error('invalid layout');
         }
         put('settings', Object.fromEntries(Object.entries(s).filter(([k]) => k in DEFAULTS)));
         if (body.fingrid_key) last.f = 0;  // fetch with the new key on the next tick
