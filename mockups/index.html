@@ -1,0 +1,254 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Spot Price FI Redesign</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=Geist+Mono:wght@400;500&display=swap">
+<style>
+/* Design brief for the three UI directions. Layout: one reading column (max 1120px), wide figures, a feature map table. */
+:root{
+  --bg:#f7f7f8;--surface:#ffffff;--surface-2:#efeff2;--ink:#0b0c0e;--ink-2:#41444b;--muted:#71757e;--line:#e6e6ea;
+  --accent:#2f5fe0;--violet:#7a5ae0;--orange:#e39a55;--red:#d9443a;--green:#249a59;
+  --display:"Geist",-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;--mono:"Geist Mono",ui-monospace,SFMono-Regular,Menlo,monospace;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#09090b;--surface:#121215;--surface-2:#1b1b20;--ink:#f3f3f5;--ink-2:#c5c6cc;--muted:#8a8d96;--line:#24242b;--accent:#7ea0ff;--violet:#a68cff;--orange:#f0b07a;--red:#ff6a5f;--green:#3ccc85;color-scheme:dark}}
+:root[data-theme="dark"]{--bg:#09090b;--surface:#121215;--surface-2:#1b1b20;--ink:#f3f3f5;--ink-2:#c5c6cc;--muted:#8a8d96;--line:#24242b;--accent:#7ea0ff;--violet:#a68cff;--orange:#f0b07a;--red:#ff6a5f;--green:#3ccc85;color-scheme:dark}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.6 var(--display);-webkit-font-smoothing:antialiased}
+.wrap{max-width:1120px;margin:0 auto;padding-left:max(20px,env(safe-area-inset-left,0px));padding-right:max(20px,env(safe-area-inset-right,0px))}
+a{color:var(--accent)}
+:focus-visible{outline:2px solid var(--accent);outline-offset:3px;border-radius:6px}
+h1,h2,h3{text-wrap:balance;letter-spacing:-.02em;margin:0}
+h1{font-size:clamp(2.2rem,6vw,3.8rem);line-height:1.02;font-weight:650;letter-spacing:-.04em}
+h2{font-size:clamp(1.5rem,3.2vw,2.1rem);font-weight:650;line-height:1.15}
+h3{font-size:1.15rem;font-weight:600}
+p{margin:0}
+.eyebrow{font-family:var(--mono);font-size:.78rem;letter-spacing:.06em;text-transform:uppercase;color:var(--muted)}
+.lede{font-size:clamp(1.05rem,2vw,1.25rem);color:var(--ink-2);max-width:44rem;line-height:1.55}
+section{padding-block:clamp(2.4rem,6vw,4.5rem);border-top:1px solid var(--line)}
+section:first-of-type{border-top:0}
+.sh{display:grid;gap:.7rem;margin-bottom:2rem;max-width:46rem}
+.sh p{color:var(--ink-2)}
+header.hero{padding-block:clamp(2.6rem,8vw,5.5rem) 1rem;display:grid;gap:1.3rem}
+.swatchline{display:flex;gap:6px;margin-top:.4rem}
+.swatchline i{height:8px;border-radius:4px;flex:1;max-width:120px}
+.cta{display:flex;flex-wrap:wrap;gap:.6rem;margin-top:.6rem}
+.btn{display:inline-flex;align-items:center;gap:.5rem;min-height:44px;padding:0 1.1rem;border-radius:10px;border:1px solid var(--line);background:var(--surface);color:var(--ink);text-decoration:none;font-weight:550}
+.btn.primary{background:var(--ink);color:var(--bg);border-color:var(--ink)}
+.btn b{font-family:var(--mono);font-weight:500;font-size:.8rem;color:var(--muted)}
+.btn.primary b{color:inherit;opacity:.65}
+
+/* the problem */
+.facts{display:grid;grid-template-columns:repeat(4,1fr);gap:1px;background:var(--line);border:1px solid var(--line);border-radius:16px;overflow:hidden}
+.facts div{background:var(--surface);padding:1.1rem 1.2rem;display:grid;gap:.25rem;align-content:start}
+.facts b{font-family:var(--mono);font-size:2rem;font-weight:500;letter-spacing:-.04em;line-height:1.1}
+.facts span{color:var(--ink-2);font-size:.92rem;line-height:1.4}
+.before{display:grid;grid-template-columns:2.4fr 1fr;gap:1rem;margin-top:1.4rem;align-items:start}
+figure{margin:0;display:grid;gap:.5rem;min-width:0}
+figure img{display:block;width:100%;height:auto;border-radius:12px;border:1px solid var(--line);background:var(--surface)}
+figcaption{font-size:.84rem;color:var(--muted)}
+.crop{max-height:520px;overflow:hidden;border-radius:12px;border:1px solid var(--line)}
+.crop img{border:0;border-radius:0}
+
+/* concepts */
+.concept{display:grid;grid-template-columns:minmax(0,1fr) 330px;gap:2rem;padding-block:2.4rem;border-top:1px solid var(--line);align-items:start}
+.concept:first-of-type{border-top:0;padding-top:.4rem}
+.shots{display:grid;grid-template-columns:minmax(0,1fr) 150px;gap:.8rem;align-items:end}
+.shots .ph img{border-radius:18px}
+.ctext{display:grid;gap:.9rem;align-content:start}
+.ctext .tag{font-family:var(--mono);font-size:.78rem;color:var(--muted)}
+.ctext h3{font-size:1.6rem;font-weight:650;letter-spacing:-.03em}
+.ctext p{color:var(--ink-2)}
+.pc{display:grid;gap:.35rem;font-size:.92rem;margin:0;padding:0;list-style:none}
+.pc li{display:grid;grid-template-columns:1.1rem 1fr;gap:.3rem;color:var(--ink-2)}
+.pc li::before{content:"+";font-family:var(--mono);color:var(--green)}
+.pc.minus li::before{content:"−";color:var(--red)}
+.rec{display:inline-flex;align-self:start;font-size:.75rem;font-weight:650;padding:.2rem .6rem;border-radius:999px;background:var(--ink);color:var(--bg)}
+
+/* structure */
+.ia{display:grid;grid-template-columns:repeat(5,1fr);gap:.7rem}
+.ia div{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:1rem;display:grid;gap:.4rem;align-content:start}
+.ia b{font-size:1.02rem}
+.ia .q{font-size:.85rem;color:var(--accent);font-weight:550}
+.ia ul{margin:0;padding-left:1rem;color:var(--ink-2);font-size:.86rem;line-height:1.5}
+.global{margin-top:.9rem;display:flex;flex-wrap:wrap;gap:.5rem 1.2rem;font-size:.9rem;color:var(--ink-2);background:var(--surface-2);border-radius:12px;padding:.8rem 1rem}
+.global b{color:var(--ink)}
+
+/* feature map */
+.tablewrap{overflow-x:auto;border:1px solid var(--line);border-radius:14px;background:var(--surface)}
+table{border-collapse:collapse;width:100%;font-size:.9rem;min-width:640px}
+th{text-align:left;font-weight:600;font-size:.76rem;letter-spacing:.04em;text-transform:uppercase;color:var(--muted);padding:.75rem 1rem;border-bottom:1px solid var(--line)}
+td{padding:.65rem 1rem;border-bottom:1px solid var(--line);vertical-align:top}
+tr:last-child td{border-bottom:0}
+td:first-child{color:var(--ink-2);width:36%}
+td .to{font-weight:550}
+td small{display:block;color:var(--muted);font-size:.82rem}
+
+/* principles */
+.princ{display:grid;grid-template-columns:repeat(3,1fr);gap:1.6rem 2rem}
+.princ div{display:grid;gap:.4rem}
+.princ p{color:var(--ink-2);font-size:.95rem}
+.keys{display:flex;flex-wrap:wrap;gap:.4rem 1rem;font-size:.85rem;color:var(--ink-2);margin-top:.4rem}
+.keys i{display:inline-block;width:11px;height:11px;border-radius:3px;margin-right:.35rem;vertical-align:-1px}
+
+/* recommendation */
+.steps{list-style:none;margin:1.4rem 0 0;padding:0;display:grid;gap:0;counter-reset:s}
+.steps li{display:grid;grid-template-columns:3rem 1fr;gap:.5rem;padding:1rem 0;border-top:1px solid var(--line);counter-increment:s}
+.steps li::before{content:counter(s,decimal-leading-zero);font-family:var(--mono);color:var(--muted);font-size:.9rem;padding-top:.15rem}
+.steps b{display:block;margin-bottom:.15rem}
+.steps span{color:var(--ink-2);font-size:.95rem}
+footer{padding-block:2rem 3rem;color:var(--muted);font-size:.85rem;border-top:1px solid var(--line)}
+
+@media (max-width:900px){
+  .concept{grid-template-columns:1fr;gap:1.2rem}
+  .ia{grid-template-columns:repeat(2,1fr)}
+  .ia div:last-child{grid-column:1/-1}
+  .princ{grid-template-columns:1fr 1fr}
+  .facts{grid-template-columns:1fr 1fr}
+}
+@media (max-width:600px){
+  .before{grid-template-columns:1fr}
+  .shots{grid-template-columns:minmax(0,1fr) 110px}
+  .ia,.princ{grid-template-columns:1fr}
+  .ia div:last-child{grid-column:auto}
+  .facts b{font-size:1.6rem}
+}
+</style>
+</head>
+<body>
+<div class="wrap">
+<header class="hero">
+  <span class="eyebrow">Spot price FI · UI redesign · branch UI-enhancement</span>
+  <h1>Same features.<br>One clear answer first.</h1>
+  <p class="lede">The dashboard answers one question a hundred times a day: <em>is electricity cheap right now, and when will it be cheaper?</em> Today that answer competes with more than eighty controls. These three mockups keep every feature and move the configuration out of the way, so the price leads.</p>
+  <div class="swatchline" aria-hidden="true"><i style="background:var(--ink)"></i><i style="background:var(--violet)"></i><i style="background:var(--orange)"></i><i style="background:var(--red)"></i><i style="background:var(--green)"></i></div>
+  <div class="cta">
+    <a class="btn" href="a-calm.html">A · Calm <b>open</b></a>
+    <a class="btn primary" href="b-studio.html">B · Studio <b>recommended</b></a>
+    <a class="btn" href="c-signal.html">C · Signal <b>open</b></a>
+  </div>
+  <p style="color:var(--muted);font-size:.88rem">All three are working prototypes with example data. Open them on a phone, a tablet and a computer: the layout changes at each size. Tap bars, switch Spot / Total cost, open Explore, Alerts and Settings.</p>
+</header>
+
+<section id="problem">
+  <div class="sh"><span class="eyebrow">The problem</span><h2>Everything has the same weight, so nothing leads.</h2>
+    <p>The current page puts daily reading, analysis and one-time setup on one surface. Settings you change once a year sit above the chart you look at every hour.</p></div>
+  <div class="facts">
+    <div><b>84</b><span>visible controls on one screen, before you open any panel or dialog</span></div>
+    <div><b>4</b><span>rows of toolbars between the price cards and the chart</span></div>
+    <div><b>3,400 px</b><span>phone scroll to reach Recipients, at the bottom</span></div>
+    <div><b>118</b><span>words of legend under the chart, explaining colours in prose</span></div>
+  </div>
+  <div class="before">
+    <figure><div class="crop"><img src="shots/current-desktop.jpg" alt="The current dashboard on a desktop: six equal cards, four toolbar rows, the chart, then settings panels" loading="lazy"></div><figcaption>Today on a desktop. The alarm row, the period row and the chart options all compete with the chart.</figcaption></figure>
+    <figure><div class="crop"><img src="shots/current-phone.jpg" alt="The current dashboard on a phone: a long single column of cards and controls" loading="lazy"></div><figcaption>Today on a phone (the top of a 3,400 px page).</figcaption></figure>
+  </div>
+</section>
+
+<section id="concepts">
+  <div class="sh"><span class="eyebrow">Three directions</span><h2>One structure, three characters.</h2>
+    <p>All three use the same five sections and the same components. They differ in how the home screen reads and how much they show at once.</p></div>
+
+  <article class="concept">
+    <div class="shots"><figure><img src="shots/a-calm-desktop.jpg" alt="Concept A on a desktop: a very large current price, a sentence, the day's chart and five facts" loading="lazy"></figure><figure class="ph"><img src="shots/a-calm-phone.jpg" alt="Concept A on a phone" loading="lazy"></figure></div>
+    <div class="ctext"><span class="tag">A · Calm</span><h3>The price, in one sentence</h3>
+      <p>Close to Apple Weather. A large current price, then one plain sentence: how it compares to today and when the cheap stretch starts. Below it are the day's bars, five facts and the cost planner. Everything else is one tap away.</p>
+      <ul class="pc"><li>Easiest to read at a glance, at any size</li><li>The sentence answers the real question without a chart</li><li>Lowest effort to build on the current code</li></ul>
+      <ul class="pc minus"><li>Less on screen at once on a big monitor</li><li>Power users go to Explore more often</li></ul>
+      <a class="btn" href="a-calm.html">Open A · Calm</a></div>
+  </article>
+
+  <article class="concept">
+    <div class="shots"><figure><img src="shots/b-studio-desktop.jpg" alt="Concept B on a desktop: sidebar navigation, a KPI strip, the chart and an inspector panel with the price breakdown" loading="lazy"></figure><figure class="ph"><img src="shots/b-studio-phone.jpg" alt="Concept B on a phone" loading="lazy"></figure></div>
+    <div class="ctext"><span class="rec">Recommended</span><span class="tag">B · Studio</span><h3>A workspace with an inspector</h3>
+      <p>Close to Linear, Vercel and Stripe. The interface is monochrome, so the only colour on screen is the data. A sidebar holds the five sections, and one strip replaces the six cards. Clicking a bar fills the inspector with its price breakdown. The sidebar becomes an icon rail on a tablet and a tab bar on a phone.</p>
+      <ul class="pc"><li>Shows the most without feeling packed</li><li>The breakdown and planner stay visible on a desktop</li><li>Explore turns the chart drop-down into named views</li><li>Scales to future features (new views, more pages)</li></ul>
+      <ul class="pc minus"><li>More layout work: sidebar, rail and tab bar</li></ul>
+      <a class="btn primary" href="b-studio.html">Open B · Studio</a></div>
+  </article>
+
+  <article class="concept">
+    <div class="shots"><figure><img src="shots/c-signal-desktop.jpg" alt="Concept C on a desktop in dark mode: a circular 24-hour price dial, the cheapest windows and a 48-hour chart" loading="lazy"></figure><figure class="ph"><img src="shots/c-signal-phone.jpg" alt="Concept C on a phone" loading="lazy"></figure></div>
+    <div class="ctext"><span class="tag">C · Signal</span><h3>The day as a clock</h3>
+      <p>An instrument for deciding when to use power. The dial shows each quarter hour around the clock, with a hand at now. Next to it are the cheapest 1, 3 and 6 hours with a countdown. Below are the next 48 hours with wind and temperature. It is dark first (Nordic night), with a light theme too.</p>
+      <ul class="pc"><li>The most distinctive, and memorable on a wall tablet</li><li>"When should I run it?" answered by three cards</li></ul>
+      <ul class="pc minus"><li>A dial is harder to read exactly than bars</li><li>Shows one day at a time</li></ul>
+      <a class="btn" href="c-signal.html">Open C · Signal</a></div>
+  </article>
+</section>
+
+<section id="structure">
+  <div class="sh"><span class="eyebrow">The new structure</span><h2>Five sections instead of one long page.</h2>
+    <p>Yes to sections, no to separate websites. Each section is a view in the same page (#now, #explore …), so switching is instant, the back button works, and links can point to a view. Each section answers one question.</p></div>
+  <div class="ia">
+    <div><b>Now</b><span class="q">Is it cheap? When will it be?</span><ul><li>Current price and its state</li><li>Today, tomorrow, cheapest 3 h, wind, transfer</li><li>The day's bars</li><li>What would it cost?</li><li>Cheapest hours ahead</li></ul></div>
+    <div><b>Explore</b><span class="q">What happened, what's coming?</span><ul><li>Period, custom dates, zoom</li><li>9 views: bars, hourly range, heatmap, cheapest hours, typical day, calendar, price vs wind, estimate vs actual, table</li><li>Layers, average, export</li></ul></div>
+    <div><b>Usage</b><span class="q">What did my power cost?</span><ul><li>Import, delete, file help</li><li>kWh against price</li><li>Your average vs plain average, timing effect</li></ul></div>
+    <div><b>Alerts</b><span class="q">Who hears about it, and when?</span><ul><li>High / low limits and their basis</li><li>14:00 + extra times</li><li>WhatsApp, email, recipients</li><li>Message text, preview, tests, delivery status</li></ul></div>
+    <div><b>Settings</b><span class="q">Set once.</span><ul><li>Costs, monthly fees</li><li>Weather place</li><li>Theme, price colour</li><li>Email server, users, account</li></ul></div>
+  </div>
+  <p class="global"><span><b>Always in the header:</b> the price basis (Spot / Total cost · incl. VAT), one control for every number and chart.</span><span><b>Anywhere:</b> tap a bar, cell or day for its price breakdown.</span></p>
+</section>
+
+<section id="map">
+  <div class="sh"><span class="eyebrow">Nothing removed</span><h2>Where every current feature goes.</h2></div>
+  <div class="tablewrap"><table>
+    <thead><tr><th>Today</th><th>In the redesign</th></tr></thead>
+    <tbody>
+      <tr><td>Six cards: Now, Transfer, Today, Tomorrow, Cheapest 3h, Wind (with ⓘ)</td><td><span class="to">Now: hero price + one facts strip</span><small>ⓘ explanations open on tap; wind gets a sparkline</small></td></tr>
+      <tr><td>Spot / Total cost buttons, Incl. VAT</td><td><span class="to">Header: one price basis control</span><small>a pill on the phone that opens a sheet</small></td></tr>
+      <tr><td>Tabs: Prices, Estimate vs actual, Grid View, Consumption</td><td><span class="to">Explore views + the Usage section</span></td></tr>
+      <tr><td>Chart drop-down A–G</td><td><span class="to">Explore: named views with one-line descriptions</span><small>a list on a desktop, scrolling chips on a phone</small></td></tr>
+      <tr><td>Period presets, From / To, ⬇ Export</td><td><span class="to">Explore toolbar: period, Custom dates, Export sheet</span></td></tr>
+      <tr><td>Zoom ⇔ ⇕ − + Reset, scroll bars</td><td><span class="to">Pinch, Ctrl + wheel, drag to pan; − + reset buttons</span><small>price scale zoom moves to Layers</small></td></tr>
+      <tr><td>Average checkbox</td><td><span class="to">Explore: Average switch</span></td></tr>
+      <tr><td>Show data point box, Temperature, Weather, Wind power</td><td><span class="to">Explore: Layers sheet</span><small>the readout line replaces the floating box</small></td></tr>
+      <tr><td>Alarm row: Above / Below, on total / spot, incl. VAT, WhatsApp / Email alerts</td><td><span class="to">Alerts: Price limits and Channels</span><small>kept separate from the price shown, so the red / green colours never change with the view</small></td></tr>
+      <tr><td>Price line colour box</td><td><span class="to">Settings → Appearance</span><small>with the theme override (System / Light / Dark)</small></td></tr>
+      <tr><td>Legend paragraph under the chart</td><td><span class="to">A short colour key + labels on the chart itself</span><small>"Alert above 18", "Cheapest 3 h", daily ⌀ and max</small></td></tr>
+      <tr><td>Price breakdown box</td><td><span class="to">Sheet on tap (A, C) or permanent inspector (B, desktop)</span></td></tr>
+      <tr><td>What would it cost?</td><td><span class="to">Now: planner card</span><small>best start, start now, worst start, what waiting saves</small></td></tr>
+      <tr><td>Grid View toolbar: CSV, Excel, Copy, Deselect, row zoom</td><td><span class="to">Explore → Table: Rows selector, Copy, CSV, Excel</span></td></tr>
+      <tr><td>Consumption: import, delete, “How do I get the file?”</td><td><span class="to">Usage section</span><small>plus four totals: kWh, cost, your average price, timing effect</small></td></tr>
+      <tr><td>Costs, Monthly fees</td><td><span class="to">Settings</span></td></tr>
+      <tr><td>Weather place search</td><td><span class="to">Settings → Weather place</span><small>search plus quick picks</small></td></tr>
+      <tr><td>Recipients, extra send times, Customize messages, Send WhatsApp / email tests, last-send status</td><td><span class="to">Alerts</span><small>status banner on top, a live message preview, recipients as rows that open a sheet</small></td></tr>
+      <tr><td>Email server</td><td><span class="to">Settings → Email server</span></td></tr>
+      <tr><td>Users (admin), Account, Log out</td><td><span class="to">Settings → Users, Account</span><small>avatar in the header goes there</small></td></tr>
+      <tr><td>⟳ Refresh prices, status footer (published until, Fingrid, errors)</td><td><span class="to">Sidebar foot (B), a small "updated" dot (C), Settings → Account → Data</span><small>errors become a banner where they matter</small></td></tr>
+    </tbody>
+  </table></div>
+</section>
+
+<section id="principles">
+  <div class="sh"><span class="eyebrow">Design rules</span><h2>What makes it feel calm.</h2></div>
+  <div class="princ">
+    <div><h3>Answer before detail</h3><p>The current price and one sentence come first. Charts, tables and analysis follow in that order.</p></div>
+    <div><h3>Set-and-forget moves out</h3><p>Limits, recipients, costs and servers change rarely. They get their own pages and stop crowding the daily view.</p></div>
+    <div><h3>Colour means one thing</h3><p>The chrome is neutral. Colour is reserved for the data, and every colour keeps the app's existing meaning:</p>
+      <div class="keys"><span><i style="background:var(--ink)"></i>published</span><span><i style="background:var(--violet)"></i>fixed, to come</span><span><i style="background:var(--orange)"></i>estimate</span><span><i style="background:var(--red)"></i>≥ high</span><span><i style="background:var(--green)"></i>≤ low</span></div></div>
+    <div><h3>Label the chart, not a legend</h3><p>Limit lines say "Alert above 18". The cheapest window says "Cheapest 3 h". Each day shows its average. The 118-word legend becomes a short colour key.</p></div>
+    <div><h3>One basis, everywhere</h3><p>Spot or total cost, with or without VAT, is chosen once in the header and applies to every number. Alerts keep their own basis.</p></div>
+    <div><h3>Built for thumbs</h3><p>A tab bar within reach, 44 px targets, sheets that slide up from the bottom, and no hover-only information. Dark mode is designed, not inverted.</p></div>
+  </div>
+</section>
+
+<section id="next">
+  <div class="sh"><span class="eyebrow">Recommendation</span><h2>Build B, borrow from A and C.</h2>
+    <p>B's structure gives the most room to grow and keeps the breakdown visible on a desktop. Put A's plain-language sentence under B's current price, and C's cheapest 1 / 3 / 6 h cards in the Now view. Keep the dial as an optional view in Explore.</p></div>
+  <ol class="steps">
+    <li><div><b>Tokens and components</b><span>Move web/style.css to colour and spacing tokens (as in mockups/kit.css): segmented control, switch, sheet, group rows. No behaviour changes.</span></div></li>
+    <li><div><b>Shell and sections</b><span>Add the sidebar, rail and tab bar with #now, #explore, #usage, #alerts and #settings. The existing elements move into sections; their ids and app.js handlers stay the same.</span></div></li>
+    <li><div><b>Global price basis</b><span>Lift the Spot / Total and VAT controls into the header. The alarm row becomes Alerts → Price limits.</span></div></li>
+    <li><div><b>Explore</b><span>Turn the Chart drop-down and the tabs into the views list. Chart options become the Layers sheet. Grid View becomes the Table view.</span></div></li>
+    <li><div><b>Now view</b><span>Hero price + sentence, the facts strip, the day chart, the inspector (breakdown) and the planner. The legend text becomes on-chart labels.</span></div></li>
+    <li><div><b>Polish</b><span>Bottom sheets for dialogs, dark theme pass, reduced motion, keyboard focus, then test on an iPhone, an iPad and a desktop.</span></div></li>
+  </ol>
+</section>
+</div>
+<footer class="wrap">Mockups live in <code>mockups/</code> on the <code>UI-enhancement</code> branch: <code>kit.js</code> (example data, price maths from web/costs.js, SVG charts) and <code>kit.css</code> (tokens and components) are shared by the three concept pages. Example data only; now is fixed at Thu 15 Oct 2026 15:10.</footer>
+</body>
+</html>

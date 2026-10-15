@@ -1,0 +1,197 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>C · Signal — Electricity Finland</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap">
+<link rel="stylesheet" href="kit.css">
+<style>
+/* C · Signal — an instrument for deciding when to use power. Nordic-night dark first, light on request.
+   Layout: the day as a 24-hour dial (hero) beside the best windows; the coming 48 hours underneath. */
+:root{
+  --bg:#0a1120;--surface:#0f1a2e;--surface-2:#16233b;--ink:#e7eef9;--ink-2:#b8c4d8;--muted:#8392aa;--line:#1c2a44;--line-2:#2a3a58;
+  --accent:#86c8ff;--on-accent:#06101f;--focus:#86c8ff;
+  --past:#c4cfe2;--fixed:#a993ff;--est:#f3b781;--hi:#ff6b62;--lo:#43d197;--heat:#c4cfe2;--avg:#f1c84b;--wind:#e9c45a;--warm:#ff6b62;--cold:#86c8ff;--band:#43d197;--night:rgba(134,200,255,.04);
+  --radius:20px;--radius-s:12px;--shadow:none;
+  --font-ui:"Manrope",-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;--font-num:"JetBrains Mono",ui-monospace,SFMono-Regular,Menlo,monospace;
+  color-scheme:dark;
+}
+@media (prefers-color-scheme:light){:root:not([data-theme="dark"]){
+  --bg:#edf1f6;--surface:#ffffff;--surface-2:#e6ecf3;--ink:#0a1120;--ink-2:#34425a;--muted:#66758c;--line:#dde4ed;--line-2:#c8d2de;
+  --accent:#1360c4;--on-accent:#fff;--focus:#1360c4;--past:#1c2a42;--fixed:#7353db;--est:#e59a55;--hi:#d63e35;--lo:#1f9a63;--heat:#1c2a42;--avg:#c9a012;--wind:#bf940f;--warm:#d63e35;--cold:#1360c4;--band:#1f9a63;--night:rgba(19,96,196,.04);
+  --shadow:0 1px 2px rgba(10,17,32,.05),0 6px 24px rgba(10,17,32,.05);color-scheme:light}}
+:root[data-theme="light"]{
+  --bg:#edf1f6;--surface:#ffffff;--surface-2:#e6ecf3;--ink:#0a1120;--ink-2:#34425a;--muted:#66758c;--line:#dde4ed;--line-2:#c8d2de;
+  --accent:#1360c4;--on-accent:#fff;--focus:#1360c4;--past:#1c2a42;--fixed:#7353db;--est:#e59a55;--hi:#d63e35;--lo:#1f9a63;--heat:#1c2a42;--avg:#c9a012;--wind:#bf940f;--warm:#d63e35;--cold:#1360c4;--band:#1f9a63;--night:rgba(19,96,196,.04);
+  --shadow:0 1px 2px rgba(10,17,32,.05),0 6px 24px rgba(10,17,32,.05);color-scheme:light}
+
+.wrap{max-width:1240px;margin:0 auto;padding-inline:max(20px,env(safe-area-inset-left,0px)) max(20px,env(safe-area-inset-right,0px))}
+.top{display:flex;align-items:center;gap:1.4rem;padding-block:1rem;border-bottom:1px solid var(--line)}
+.brand{font-weight:800;letter-spacing:-.02em;display:flex;align-items:center;gap:.5rem}
+.brand i{width:10px;height:10px;border-radius:50%;background:var(--accent);box-shadow:0 0 0 4px color-mix(in oklab,var(--accent) 20%,transparent)}
+.topnav{display:flex;gap:.2rem}
+.topnav a{color:var(--muted);text-decoration:none;font-weight:600;padding:.45rem .8rem;border-radius:10px;font-size:.92rem}
+.topnav a[aria-current="page"]{color:var(--ink);background:var(--surface-2)}
+.basis-pill{margin-left:auto;font:inherit;font-size:.82rem;font-weight:600;color:var(--ink-2);background:transparent;border:1px solid var(--line-2);border-radius:999px;padding:.4rem .85rem;cursor:pointer}
+.upd{font-family:var(--font-num);font-size:.75rem;color:var(--muted);display:flex;gap:.4rem;align-items:center}
+.upd i{width:6px;height:6px;border-radius:50%;background:var(--lo)}
+main{padding-block:1.4rem calc(110px + env(safe-area-inset-bottom,0px))}
+.page{display:grid;gap:1.4rem}
+.ph{margin:.4rem 0 0;font-size:clamp(1.6rem,3.5vw,2.2rem);font-weight:800;letter-spacing:-.03em}
+
+/* hero: dial + windows */
+.hero{display:grid;grid-template-columns:minmax(0,440px) minmax(0,1fr);gap:2.4rem;align-items:center}
+.dialbox{position:relative;width:100%;max-width:440px;aspect-ratio:1;justify-self:center}
+#dial{position:absolute;inset:0}
+#dial svg{width:100%;height:100%}
+.center{position:absolute;inset:27%;display:grid;place-content:center;text-align:center;pointer-events:none;gap:.1rem}
+.center .lbl{text-transform:uppercase;letter-spacing:.14em;font-size:.68rem;font-weight:700}
+.center .p{font-family:var(--font-num);font-size:clamp(2.2rem,7vw,3.2rem);font-weight:500;letter-spacing:-.05em;line-height:1}
+.center .u{font-size:.75rem;color:var(--muted)}
+.center .st{font-size:.78rem;font-weight:700;margin-top:.35rem}
+.center .st.hi{color:var(--hi)}.center .st.lo,.center .st.good{color:var(--lo)}.center .st.warn{color:var(--est)}
+.dayseg{display:flex;justify-content:center;margin-top:.8rem}
+.side h2{margin:0 0 .3rem;font-size:clamp(1.5rem,3vw,2rem);font-weight:800;letter-spacing:-.03em;text-wrap:balance}
+.side .lede{color:var(--ink-2);margin:0 0 1.3rem;max-width:40rem;font-size:1.02rem}
+.wins{display:grid;grid-template-columns:repeat(3,1fr);gap:.7rem}
+.win{background:var(--surface);border:1px solid var(--line);border-radius:16px;padding:.9rem 1rem;display:grid;gap:.15rem;cursor:pointer;text-align:left;color:inherit;font:inherit;box-shadow:var(--shadow)}
+.win:hover{border-color:var(--line-2)}
+.win .lbl{font-weight:700;color:var(--muted)}
+.win b{font-family:var(--font-num);font-size:1.5rem;font-weight:500;letter-spacing:-.03em}
+.win .sub{font-size:.8rem;color:var(--muted)}
+.win .in{font-family:var(--font-num);font-size:.75rem;color:var(--lo)}
+.mini{display:grid;grid-template-columns:repeat(4,1fr);margin-top:1rem;border-top:1px solid var(--line)}
+.mini div{padding:.9rem 0 0;display:grid;gap:.1rem}
+.mini b{font-family:var(--font-num);font-weight:500;font-size:1.05rem}
+.mini span:last-child{font-size:.75rem;color:var(--muted)}
+.mini .spark{color:var(--wind)}
+
+.strip{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);padding:1rem 1.2rem 1.1rem;min-width:0;box-shadow:var(--shadow)}
+.strip .hd{display:flex;flex-wrap:wrap;gap:.6rem;align-items:center}
+.strip h3{margin:0;font-size:1rem;font-weight:700}
+.strip .hd .sp{flex:1}
+.cols{display:grid;grid-template-columns:1fr 1fr;gap:1.4rem;align-items:start}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);padding:1.1rem 1.2rem;min-width:0;box-shadow:var(--shadow)}
+.card h3{margin:0 0 .9rem;font-size:1rem;font-weight:700}
+.group{border:1px solid var(--line)}
+.pl-best b,.pl-cmp b,.readout .ro-p,.u-kpis b,.bd-total,.ladder b{font-family:var(--font-num);font-weight:500;letter-spacing:-.02em}
+.chip[aria-pressed="true"],.lenses button[aria-pressed="true"]{background:var(--accent);border-color:var(--accent);color:var(--on-accent)}
+.tabbar{display:none}
+@media (max-width:980px){
+  .hero{grid-template-columns:1fr;gap:1.4rem}
+  .side{text-align:left}
+  .cols{grid-template-columns:1fr}
+}
+@media (max-width:759px){
+  .topnav,.upd{display:none}
+  .top{padding-block:.8rem;border-bottom:0}
+  .wins{grid-template-columns:1fr}
+  .win{grid-template-columns:1fr auto;align-items:baseline;gap:.15rem .8rem}
+  .win .lbl{grid-column:1;grid-row:1}.win .in{grid-column:2;grid-row:1;text-align:right}.win b,.win .sub{grid-column:1/-1}
+  .mini{grid-template-columns:1fr 1fr}
+  .dialbox{max-width:340px}
+  .tabbar{display:flex;position:fixed;left:0;right:0;bottom:0;z-index:20;background:color-mix(in oklab,var(--bg) 82%,transparent);backdrop-filter:blur(18px);-webkit-backdrop-filter:blur(18px);border-top:1px solid var(--line);padding:6px max(8px,env(safe-area-inset-right,0px)) calc(6px + env(safe-area-inset-bottom,0px)) max(8px,env(safe-area-inset-left,0px))}
+  .tabbar a{flex:1;display:grid;justify-items:center;gap:2px;padding:4px 0;color:var(--muted);text-decoration:none;font-size:.68rem;font-weight:600}
+  .tabbar a .ico{width:22px;height:22px}
+  .tabbar a[aria-current="page"]{color:var(--accent)}
+  .strip{padding:.9rem .8rem 1rem}
+}
+</style>
+</head>
+<body>
+<header class="wrap top">
+  <span class="brand"><i></i>Spot price FI</span>
+  <nav class="topnav" id="topnav" aria-label="Sections"></nav>
+  <span id="basisSlot" style="margin-left:auto"></span>
+  <span class="upd"><i></i>15:02</span>
+</header>
+<main class="wrap">
+  <section class="page" data-page="now" hidden>
+    <div class="hero">
+      <div>
+        <div class="dialbox"><div id="dial"></div><div class="center" id="center"></div></div>
+        <div class="dayseg"><div class="seg" role="group" aria-label="Day" id="dday"><button type="button" data-d="0" aria-pressed="true">Today</button><button type="button" data-d="1" aria-pressed="false">Tomorrow</button></div></div>
+      </div>
+      <div class="side">
+        <h2 id="headline"></h2>
+        <p class="lede" id="lede"></p>
+        <div class="wins" id="wins"></div>
+        <div class="mini" id="mini"></div>
+      </div>
+    </div>
+    <div class="strip">
+      <div class="hd"><h3>Next 48 hours</h3><span class="sp"></span><a href="#explore" style="color:var(--accent);font-weight:600;text-decoration:none;font-size:.9rem">Explore →</a></div>
+      <div class="readout" id="ro" aria-live="polite"></div>
+      <div id="strip"></div>
+      <div id="legend"></div>
+    </div>
+    <div class="cols">
+      <div class="card"><h3>What would it cost?</h3><div id="planner"></div></div>
+      <div class="card"><h3>Cheapest hours ahead</h3><div id="coming"></div></div>
+    </div>
+  </section>
+  <section class="page" data-page="explore" hidden><h1 class="ph">Explore</h1><div class="mount"></div></section>
+  <section class="page" data-page="usage" hidden><h1 class="ph">Usage</h1><div class="mount"></div></section>
+  <section class="page" data-page="alerts" hidden><h1 class="ph">Alerts</h1><div class="mount" style="max-width:820px"></div></section>
+  <section class="page" data-page="settings" hidden><h1 class="ph">Settings</h1><div class="mount"></div></section>
+</main>
+<nav class="tabbar" id="tabbar" aria-label="Sections"></nav>
+
+<script src="kit.js"></script>
+<script>
+(() => {
+const { $, $$, DAY, TODAY, NOW, H } = EF;
+EF.review('c-signal');
+$('#topnav').innerHTML = EF.NAV.map(([k, n]) => `<a href="#${k}" data-nav="${k}">${n}</a>`).join('');
+$('#tabbar').innerHTML = EF.NAV.map(([k, n]) => `<a href="#${k}" data-nav="${k}">${EF.ICON[k]}${n}</a>`).join('');
+$('#basisSlot').innerHTML = EF.basisPill();
+
+let dday = 0;
+const centerNow = () => { const ins = EF.insight(), c = ins.c;
+  $('#center').innerHTML = dday === 0 ? `<span class="lbl">Now · ${EF.hm(c.t)}</span><span class="p">${EF.f2(c.v)}</span><span class="u">c/kWh</span><span class="st ${ins.tone}">${ins.state}</span>`
+    : `<span class="lbl">Tomorrow avg</span><span class="p">${EF.f2(ins.tm.avg)}</span><span class="u">c/kWh</span><span class="st">${EF.f2(ins.tm.lo)} – ${EF.f2(ins.tm.hi)}</span>`; };
+function dial() {
+  EF.dial($('#dial'), { day: TODAY + dday * DAY, max: 440,
+    onHover: b => $('#center').innerHTML = `<span class="lbl">${EF.hm(b.t)}–${EF.hm(b.end)}</span><span class="p">${EF.f2(b.avg)}</span><span class="u">c/kWh</span><span class="st ${b.state || ''}">${EF.KIND_LABEL[b.kind]}</span>`,
+    onLeave: centerNow, onPick: EF.showBreakdown });
+  centerNow();
+}
+function hero() {
+  const ins = EF.insight(), until = h => { const m = Math.round((h - NOW) / 6e4); return m <= 0 ? 'now' : `in ${Math.floor(m / 60)} h ${m % 60} min`; };
+  $('#headline').textContent = ins.c.state === 'hi' ? 'Expensive right now. Wait if you can.' : ins.ch.t - NOW < 3 * H ? 'A cheap stretch is coming up soon.' : `Cheapest from ${EF.hm(ins.ch.t)} ${ins.ch.t < TODAY + DAY ? 'tonight' : 'tomorrow'}.`;
+  $('#lede').textContent = ins.sentence;
+  $('#wins').innerHTML = [1, 3, 6].map(h => { const w = EF.cheapest(h); return w ? `<button class="win" data-t="${w.t}" data-h="${h}"><span class="lbl">Cheapest ${h} h</span><b>${EF.hm(w.t)}–${EF.hm(w.end)}</b><span class="sub">${EF.rel(w.t)} · avg ${EF.f2(w.avg)}</span><span class="in">${until(w.t)}</span></button>` : ''; }).join('');
+  const c = ins.c, tr = EF.value(c.t, c.spot, 'transfer', EF.state.vat);
+  $('#mini').innerHTML = `<div><span class="lbl">Today avg</span><b>${EF.f2(ins.td.avg)}</b><span>${EF.f2(ins.td.lo)} – ${EF.f2(ins.td.hi)}</span></div><div><span class="lbl">Tomorrow avg</span><b>${EF.f2(ins.tm.avg)}</b><span>${EF.f2(ins.tm.lo)} – ${EF.f2(ins.tm.hi)}</span></div><div><span class="lbl">Transfer now</span><b>${EF.f2(tr)}</b><span>${EF.parts(c.t, c.spot).night ? 'night' : 'day'} rate + tax</span></div><div><span class="lbl">Wind</span><b>${EF.int(EF.windNow())} MW</b>${EF.spark(EF.agg(NOW - 2 * DAY, NOW, 3 * H).map(b => EF.hourly(EF.wind, b.t, b.end)), 96, 22)}</div>`;
+}
+function strip() {
+  const ro = $('#ro'), cur = () => ro.innerHTML = EF.readout(EF.nowBucket());
+  cur();
+  EF.bars($('#strip'), { from: EF.bstart(NOW, H) - 6 * H, to: EF.bstart(NOW, H) + 42 * H, height: innerWidth < 760 ? 200 : 240, layers: { wind: true, temp: true, wx: true }, onHover: b => ro.innerHTML = EF.readout(b), onLeave: cur, onPick: EF.showBreakdown });
+  $('#legend').innerHTML = EF.legend();
+}
+function now() { dial(); hero(); strip(); EF.ladder($('#coming'), { onPick: EF.showBreakdown }); $$('#coming li').forEach((li, k) => li.hidden = k >= 6); }
+$('#dday').onclick = e => { const b = e.target.closest('[data-d]'); if (!b) return; dday = +b.dataset.d; $$('#dday button').forEach(x => x.setAttribute('aria-pressed', x === b)); dial(); };
+$('#wins').onclick = e => { const w = e.target.closest('.win'); if (!w) return; const t = +w.dataset.t, b = EF.agg(t, t + +w.dataset.h * H, +w.dataset.h * H)[0]; EF.showBreakdown(b); };
+
+const mounted = {};
+const mount = {
+  now: () => { EF.planner($('#planner'), { preset: 3 }); EF.on('change', p => ('mode' in p || 'vat' in p || p.costs || p.theme) && !$('[data-page="now"]').hidden && now()); },
+  explore: () => EF.explore($('[data-page="explore"] .mount'), { layout: 'chips' }),
+  usage: () => EF.usagePage($('[data-page="usage"] .mount')),
+  alerts: () => EF.alertsPage($('[data-page="alerts"] .mount')),
+  settings: () => EF.settingsPage($('[data-page="settings"] .mount')),
+};
+EF.router(v => {
+  $$('.page').forEach(p => p.hidden = p.dataset.page !== v);
+  if (!mounted[v]) { mounted[v] = 1; mount[v](); } else EF.emit('change', {});
+  if (v === 'now') now();
+  scrollTo(0, 0);
+});
+let rz; addEventListener('resize', () => { clearTimeout(rz); rz = setTimeout(() => !$('[data-page="now"]').hidden && (dial(), strip()), 150); });
+})();
+</script>
+</body>
+</html>

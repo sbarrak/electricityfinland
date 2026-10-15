@@ -1,0 +1,202 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>A · Calm — Electricity Finland</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Hanken+Grotesk:wght@300;400;500;600;700&display=swap">
+<link rel="stylesheet" href="kit.css">
+<style>
+/* A · Calm — one quiet column. The price now is the hero, everything else is one tap away.
+   Layout: centred column (max 1040px), segmented navigation on top for tablet/desktop, a tab bar on the phone. */
+:root{
+  --bg:#f4f5f7;--surface:#ffffff;--surface-2:#eef0f3;--ink:#101317;--ink-2:#3b424c;--muted:#727a86;--line:#e6e8ec;--line-2:#d3d7dd;
+  --accent:#2457d6;--on-accent:#fff;--focus:#2457d6;
+  --past:#23272e;--fixed:#7656dc;--est:#e9a466;--hi:#d8433a;--lo:#2b9a5c;--heat:#23272e;--avg:#caa021;--wind:#c49a1c;--warm:#d8433a;--cold:#2457d6;--band:#2b9a5c;
+  --radius:22px;--radius-s:12px;--shadow:0 1px 2px rgba(17,24,39,.04),0 4px 24px rgba(17,24,39,.05);
+  --font-ui:"Hanken Grotesk",-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;--font-num:"Hanken Grotesk",-apple-system,sans-serif;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --bg:#0c0e11;--surface:#15181d;--surface-2:#1e2228;--ink:#eef1f4;--ink-2:#c3c9d1;--muted:#8a929d;--line:#23272e;--line-2:#323841;
+  --accent:#6b93ff;--on-accent:#0c0e11;--focus:#6b93ff;--past:#dfe3e8;--fixed:#a58cff;--est:#f0b27a;--hi:#ff6a5e;--lo:#47c487;--heat:#dfe3e8;--avg:#e3bb3b;--wind:#e0b83a;--warm:#ff6a5e;--cold:#6b93ff;--band:#47c487;--night:rgba(140,160,255,.05);
+  --shadow:none;color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#0c0e11;--surface:#15181d;--surface-2:#1e2228;--ink:#eef1f4;--ink-2:#c3c9d1;--muted:#8a929d;--line:#23272e;--line-2:#323841;
+  --accent:#6b93ff;--on-accent:#0c0e11;--focus:#6b93ff;--past:#dfe3e8;--fixed:#a58cff;--est:#f0b27a;--hi:#ff6a5e;--lo:#47c487;--heat:#dfe3e8;--avg:#e3bb3b;--wind:#e0b83a;--warm:#ff6a5e;--cold:#6b93ff;--band:#47c487;--night:rgba(140,160,255,.05);
+  --shadow:none;color-scheme:dark}
+
+.wrap{max-width:1040px;margin:0 auto;padding-inline:max(20px,env(safe-area-inset-left,0px)) max(20px,env(safe-area-inset-right,0px))}
+.top{display:flex;align-items:center;gap:1rem;padding-block:1.1rem .4rem}
+.brand{font-weight:650;letter-spacing:-.01em;display:flex;gap:.45rem;align-items:center;font-size:1rem}
+.brand svg{width:18px;height:18px;fill:var(--ink)}
+.topnav{margin-inline:auto}
+.topnav .seg{background:var(--surface);box-shadow:var(--shadow)}
+.topnav a{display:inline-flex;align-items:center;border-radius:999px;padding:.42rem 1rem;color:var(--ink-2);text-decoration:none;font-weight:500;font-size:.92rem}
+.topnav a[aria-current="page"]{background:var(--ink);color:var(--surface)}
+.basis-pill{border:0;background:transparent;color:var(--ink-2);font:inherit;font-size:.86rem;padding:.4rem .2rem;cursor:pointer;border-bottom:1px dashed var(--line-2)}
+.me{width:34px;height:34px;border-radius:50%;display:grid;place-items:center;background:var(--surface);box-shadow:var(--shadow);color:var(--ink-2);text-decoration:none;font-weight:650;font-size:.85rem}
+main{padding-block:1rem calc(110px + env(safe-area-inset-bottom,0px))}
+.page{display:grid;gap:1.25rem}
+.ph{margin:.6rem 0 .2rem;font-size:clamp(1.7rem,4vw,2.3rem);font-weight:600;letter-spacing:-.025em}
+
+/* hero */
+.hero{display:grid;gap:.2rem;padding:1.4rem 0 .4rem}
+.eyebrow{font-size:.9rem;color:var(--muted);display:flex;flex-wrap:wrap;gap:.2rem .7rem;align-items:center}
+.eyebrow .wxi{width:18px;height:18px}
+.big{font-size:clamp(4.8rem,17vw,8.4rem);font-weight:300;letter-spacing:-.055em;line-height:.95;margin:.3rem 0 .2rem;display:flex;align-items:baseline;gap:.08em}
+.big .dec{font-size:.42em;letter-spacing:-.02em;color:var(--ink-2)}
+.big .u{font-size:.15em;letter-spacing:0;font-weight:500;color:var(--muted);margin-left:.4em}
+.state{display:flex;flex-wrap:wrap;gap:.5rem .8rem;align-items:center;max-width:46rem}
+.state .chip-s{font-size:.8rem;font-weight:650;padding:.22rem .7rem;border-radius:999px;background:color-mix(in oklab,var(--lo) 14%,var(--surface));color:var(--lo)}
+.state .chip-s.warn{background:color-mix(in oklab,var(--est) 22%,var(--surface));color:color-mix(in oklab,var(--est) 60%,var(--ink))}
+.state .chip-s.hi{background:color-mix(in oklab,var(--hi) 14%,var(--surface));color:var(--hi)}
+.state p{margin:0;color:var(--ink-2);font-size:1.05rem;line-height:1.45;text-wrap:pretty}
+
+/* the day chart */
+.daycard{background:var(--surface);border-radius:var(--radius);box-shadow:var(--shadow);padding:1rem 1.2rem 1.1rem;min-width:0}
+.daycard .hd{display:flex;flex-wrap:wrap;gap:.6rem;align-items:center;justify-content:space-between}
+.daycard .readout{padding-top:.6rem}
+.more{display:inline-flex;gap:.3rem;align-items:center;color:var(--accent);text-decoration:none;font-weight:550;font-size:.9rem}
+.more .ico{width:16px;height:16px}
+
+/* facts */
+.facts{display:grid;grid-template-columns:repeat(5,1fr);gap:0;background:var(--surface);border-radius:var(--radius);box-shadow:var(--shadow)}
+.fact{padding:1rem 1.1rem;display:grid;gap:.12rem;align-content:start;border-left:1px solid var(--line);min-width:0;position:relative;background:none;border-top:0;border-right:0;border-bottom:0;text-align:left;color:inherit;font:inherit}
+.fact:first-child{border-left:0}
+.fact b{font-size:1.5rem;font-weight:500;letter-spacing:-.02em}
+.fact b small{font-size:.75rem;color:var(--muted);font-weight:400;letter-spacing:0}
+.fact .sub{font-size:.8rem;color:var(--muted)}
+.fact .spark{color:var(--wind);margin-top:.2rem}
+.fact[data-info]{cursor:pointer}
+.fact[data-info]::after{content:"i";position:absolute;top:.8rem;right:.9rem;width:16px;height:16px;border-radius:50%;border:1px solid var(--line-2);font-size:.65rem;display:grid;place-items:center;color:var(--muted);font-style:italic;font-weight:600}
+
+.two{display:grid;grid-template-columns:1.1fr .9fr;gap:1.25rem;align-items:start}
+.card{background:var(--surface);border-radius:var(--radius);box-shadow:var(--shadow);padding:1.2rem 1.25rem;min-width:0}
+.card h2{margin:0 0 .9rem;font-size:1.05rem;font-weight:650;display:flex;gap:.5rem;align-items:baseline;flex-wrap:wrap}
+.card h2 small{font-weight:400;color:var(--muted);font-size:.82rem}
+.coming{display:grid;gap:.15rem}
+.coming .ladder li{grid-template-columns:1.4rem minmax(6.5rem,1fr) 1fr 3.2rem}
+
+/* phone tab bar */
+.tabbar{display:none}
+@media (max-width:759px){
+  .topnav{display:none}
+  .top{padding-block:.9rem .2rem}
+  .tabbar{display:flex;position:fixed;left:0;right:0;bottom:0;z-index:20;background:color-mix(in oklab,var(--surface) 86%,transparent);backdrop-filter:saturate(1.4) blur(18px);-webkit-backdrop-filter:saturate(1.4) blur(18px);border-top:1px solid var(--line);padding:6px max(8px,env(safe-area-inset-right,0px)) calc(6px + env(safe-area-inset-bottom,0px)) max(8px,env(safe-area-inset-left,0px))}
+  .tabbar a{flex:1;display:grid;justify-items:center;gap:2px;padding:4px 0;color:var(--muted);text-decoration:none;font-size:.68rem;font-weight:550}
+  .tabbar a .ico{width:23px;height:23px}
+  .tabbar a[aria-current="page"]{color:var(--accent)}
+  .facts{grid-template-columns:1fr 1fr}
+  .fact{border-left:0;border-top:1px solid var(--line)}
+  .fact:nth-child(-n+2){border-top:0}
+  .fact:nth-child(even){border-left:1px solid var(--line)}
+  .fact:last-child{grid-column:1/-1;border-left:0}
+  .two{grid-template-columns:1fr}
+  .daycard{padding:.9rem .9rem 1rem;border-radius:18px}
+}
+@media (min-width:760px) and (max-width:1000px){.facts{grid-template-columns:repeat(3,1fr)}.fact:nth-child(4){border-left:0}.fact:nth-child(n+4){border-top:1px solid var(--line)}.two{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<header class="wrap top">
+  <span class="brand"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M13 2L4.5 13.5H11L10 22l8.5-11.5H12L13 2z"/></svg>Spot price FI</span>
+  <nav class="topnav" aria-label="Sections"><div class="seg" id="topnav"></div></nav>
+  <span id="basisSlot"></span>
+  <a class="me" href="#settings" aria-label="Account and settings">S</a>
+</header>
+
+<main class="wrap">
+  <!-- NOW -->
+  <section class="page" data-page="now" hidden>
+    <div class="hero">
+      <div class="eyebrow" id="eyebrow"></div>
+      <div class="big num" id="big"></div>
+      <div class="state" id="state"></div>
+    </div>
+    <div class="daycard">
+      <div class="hd"><div class="seg" role="group" aria-label="Day" id="day"><button type="button" data-d="0" aria-pressed="true">Today</button><button type="button" data-d="1" aria-pressed="false">Tomorrow</button><button type="button" data-d="w" aria-pressed="false">Next 7 days</button></div>
+        <a class="more" href="#explore">Explore all views <span class="ico-wrap"></span></a></div>
+      <div class="readout" id="ro" aria-live="polite"></div>
+      <div id="dayChart"></div>
+      <div id="dayLegend"></div>
+    </div>
+    <div class="facts" id="facts"></div>
+    <div class="two">
+      <div class="card"><h2>What would it cost? <small>on the published prices from now on</small></h2><div id="planner"></div></div>
+      <div class="card"><h2>Cheapest hours ahead <small>tap one for its breakdown</small></h2><div class="coming" id="coming"></div></div>
+    </div>
+  </section>
+  <section class="page" data-page="explore" hidden><h1 class="ph">Explore</h1><div class="mount"></div></section>
+  <section class="page" data-page="usage" hidden><h1 class="ph">Your usage</h1><div class="mount"></div></section>
+  <section class="page" data-page="alerts" hidden><h1 class="ph">Alerts</h1><div class="mount"></div></section>
+  <section class="page" data-page="settings" hidden><h1 class="ph">Settings</h1><div class="mount"></div></section>
+</main>
+<nav class="tabbar" aria-label="Sections" id="tabbar"></nav>
+
+<script src="kit.js"></script>
+<script>
+(() => {
+const { $, $$, DAY, TODAY, NOW } = EF;
+EF.review('a-calm');
+$('#topnav').innerHTML = EF.NAV.map(([k, n]) => `<a href="#${k}" data-nav="${k}">${n}</a>`).join('');
+$('#tabbar').innerHTML = EF.NAV.map(([k, n]) => `<a href="#${k}" data-nav="${k}">${EF.ICON[k]}${n}</a>`).join('');
+$('#basisSlot').innerHTML = EF.basisPill();
+$('.more .ico-wrap').outerHTML = EF.ICON.chev;
+
+let day = '0';
+const INFO = {
+  today: "Average of today's prices; the small numbers are the lowest and highest.",
+  tomorrow: 'Nord Pool publishes tomorrow around 14:00 Finnish time.',
+  cheap: 'Start of the cheapest 3-hour block in the published prices from now on. Good for laundry, dishwasher or car charging.',
+  wind: 'Wind power production in Finland right now. More wind usually means cheaper electricity.',
+  transfer: 'Your transfer fee for this hour (day or night rate) plus electricity tax, from Settings → Costs.',
+};
+function renderNow() {
+  const ins = EF.insight(), c = ins.c, w = EF.wx(NOW - EF.H, NOW + EF.H);
+  $('#eyebrow').innerHTML = `<span>Now · ${EF.hm(c.t)}–${EF.hm(c.end)}</span><span>${EF.icon(w.icon)} ${EF.f1(w.temp)}° ${EF.S.place}</span>`;
+  const [i, d] = EF.f2(c.v).split('.');
+  $('#big').innerHTML = `${i}<span class="dec">.${d}</span><span class="u">c/kWh</span>`;
+  $('#state').innerHTML = `<span class="chip-s ${ins.tone}">${ins.state}</span><p>${ins.sentence}</p>`;
+  const td = ins.td, tm = ins.tm, tr = EF.value(c.t, c.spot, 'transfer', EF.state.vat), wn = EF.windNow();
+  const sp = EF.agg(NOW - 2 * DAY, NOW, 3 * EF.H).map(b => EF.hourly(EF.wind, b.t, b.end));
+  $('#facts').innerHTML = `
+    <button class="fact" data-info="today"><span class="lbl">Today</span><b class="num">${EF.f2(td.avg)}</b><span class="sub num">${EF.f2(td.lo)} – ${EF.f2(td.hi)}</span></button>
+    <button class="fact" data-info="tomorrow"><span class="lbl">Tomorrow</span><b class="num">${EF.f2(tm.avg)}</b><span class="sub num">${EF.f2(tm.lo)} – ${EF.f2(tm.hi)}</span></button>
+    <button class="fact" data-info="cheap"><span class="lbl">Cheapest 3 h</span><b class="num">${EF.hm(ins.ch.t)}</b><span class="sub">${EF.rel(ins.ch.t)} · avg ${EF.f2(ins.ch.avg)}</span></button>
+    <button class="fact" data-info="transfer"><span class="lbl">Transfer now</span><b class="num">${EF.f2(tr)}</b><span class="sub">${EF.parts(c.t, c.spot).night ? 'Night' : 'Day'} rate + tax</span></button>
+    <button class="fact" data-info="wind"><span class="lbl">Wind power</span><b class="num">${EF.int(wn)} <small>MW</small></b>${EF.spark(sp, 110, 26)}</button>`;
+  drawDay();
+  EF.ladder($('#coming'), { onPick: EF.showBreakdown });
+  $$('#coming li').forEach((li, k) => li.hidden = k >= 6);
+}
+function drawDay() {
+  const r = day === 'w' ? { from: TODAY, to: TODAY + 7 * DAY } : { from: TODAY + +day * DAY, to: TODAY + (+day + 1) * DAY };
+  const ro = $('#ro'), cur = () => { ro.innerHTML = EF.readout(EF.nowBucket()); };
+  cur();
+  EF.bars($('#dayChart'), { ...r, height: innerWidth < 760 ? 210 : 270, days: day === 'w', layers: { wind: false, temp: false, wx: true }, avg: false,
+    onHover: b => ro.innerHTML = EF.readout(b), onLeave: cur, onPick: EF.showBreakdown });
+  $('#dayLegend').innerHTML = EF.legend();
+}
+$('#day').onclick = e => { const b = e.target.closest('[data-d]'); if (!b) return; day = b.dataset.d; $$('#day button').forEach(x => x.setAttribute('aria-pressed', x === b)); drawDay(); };
+$('#facts').onclick = e => { const f = e.target.closest('[data-info]'); if (f) EF.sheet(f.querySelector('.lbl').textContent, `<p>${INFO[f.dataset.info]}</p>`); };
+
+const mounted = {};
+const mount = {
+  now: () => { renderNow(); EF.planner($('#planner')); EF.on('change', p => (p.mode !== undefined || p.vat !== undefined || p.costs || p.theme) && renderNow()); },
+  explore: () => EF.explore($('[data-page="explore"] .mount'), { layout: 'chips' }),
+  usage: () => EF.usagePage($('[data-page="usage"] .mount')),
+  alerts: () => EF.alertsPage($('[data-page="alerts"] .mount')),
+  settings: () => EF.settingsPage($('[data-page="settings"] .mount')),
+};
+EF.router(v => {
+  $$('.page').forEach(p => p.hidden = p.dataset.page !== v);
+  if (!mounted[v]) { mounted[v] = 1; mount[v](); } else EF.emit('change', {});
+  if (v === 'now') renderNow();
+  scrollTo(0, 0);
+});
+let rz; addEventListener('resize', () => { clearTimeout(rz); rz = setTimeout(() => !$('[data-page="now"]').hidden && drawDay(), 150); });
+})();
+</script>
+</body>
+</html>

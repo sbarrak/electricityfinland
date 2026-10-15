@@ -1,0 +1,211 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>B · Studio — Electricity Finland</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=Geist+Mono:wght@400;500;600&display=swap">
+<link rel="stylesheet" href="kit.css">
+<style>
+/* B · Studio — a workspace. Monochrome chrome so the only colour on screen is the data.
+   Layout: sidebar (desktop) → icon rail (tablet) → tab bar (phone); Overview = KPI strip, chart + inspector. */
+:root{
+  --bg:#f7f7f8;--surface:#ffffff;--surface-2:#f1f1f3;--ink:#0b0c0e;--ink-2:#3d4047;--muted:#6f737c;--line:#ebebee;--line-2:#d9dadf;
+  --accent:#0b0c0e;--on-accent:#fff;--focus:#2f6fe4;
+  --past:#2a2d33;--fixed:#7a5ae0;--est:#eaa565;--hi:#de3f35;--lo:#249a59;--heat:#2a2d33;--avg:#d2a516;--wind:#c79a10;--warm:#de3f35;--cold:#2f6fe4;--band:#249a59;
+  --radius:14px;--radius-s:9px;--shadow:0 0 0 1px var(--line);
+  --font-ui:"Geist",-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;--font-num:"Geist Mono",ui-monospace,SFMono-Regular,Menlo,monospace;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --bg:#09090b;--surface:#111114;--surface-2:#1a1a1f;--ink:#f4f4f5;--ink-2:#c6c7cc;--muted:#878a93;--line:#212127;--line-2:#2e2e36;
+  --accent:#f4f4f5;--on-accent:#09090b;--focus:#7aa2ff;--past:#e1e2e6;--fixed:#a58bff;--est:#f2b277;--hi:#ff655b;--lo:#3ccc85;--heat:#e1e2e6;--avg:#e8bd35;--wind:#e4bb35;--warm:#ff655b;--cold:#7aa2ff;--band:#3ccc85;--night:rgba(140,160,255,.05);color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#09090b;--surface:#111114;--surface-2:#1a1a1f;--ink:#f4f4f5;--ink-2:#c6c7cc;--muted:#878a93;--line:#212127;--line-2:#2e2e36;
+  --accent:#f4f4f5;--on-accent:#09090b;--focus:#7aa2ff;--past:#e1e2e6;--fixed:#a58bff;--est:#f2b277;--hi:#ff655b;--lo:#3ccc85;--heat:#e1e2e6;--avg:#e8bd35;--wind:#e4bb35;--warm:#ff655b;--cold:#7aa2ff;--band:#3ccc85;--night:rgba(140,160,255,.05);color-scheme:dark}
+body{font-size:14.5px}
+.app{display:grid;grid-template-columns:236px minmax(0,1fr);min-height:calc(100vh - 30px)}
+/* sidebar */
+.side{position:sticky;top:0;height:100vh;display:flex;flex-direction:column;gap:.2rem;padding:1rem .8rem;border-right:1px solid var(--line);background:var(--bg)}
+.brand{display:flex;align-items:center;gap:.55rem;font-weight:650;padding:.3rem .6rem 1.1rem;letter-spacing:-.01em}
+.brand .mark{width:26px;height:26px;border-radius:7px;background:var(--ink);display:grid;place-items:center}
+.brand .mark svg{width:15px;height:15px;fill:var(--surface)}
+.side a{display:flex;align-items:center;gap:.7rem;padding:.55rem .65rem;border-radius:9px;color:var(--ink-2);text-decoration:none;font-weight:500}
+.side a:hover{background:var(--surface-2)}
+.side a[aria-current="page"]{background:var(--surface);color:var(--ink);box-shadow:0 0 0 1px var(--line),0 1px 2px rgba(0,0,0,.04)}
+.side .foot{margin-top:auto;display:grid;gap:.6rem;padding:.6rem;font-size:.8rem;color:var(--muted)}
+.side .foot .live{display:flex;gap:.5rem;align-items:center}
+.side .foot .live i{width:7px;height:7px;border-radius:50%;background:var(--lo)}
+.side .who{display:flex;gap:.6rem;align-items:center;color:var(--ink);font-weight:550}
+.side .who span{width:28px;height:28px;border-radius:50%;background:var(--surface-2);display:grid;place-items:center;font-size:.8rem}
+/* main */
+.main{min-width:0;padding:0 max(24px,env(safe-area-inset-right,0px)) 3rem 28px}
+.bar{display:flex;align-items:center;gap:1rem;padding:1rem 0;position:sticky;top:0;z-index:10;background:color-mix(in oklab,var(--bg) 88%,transparent);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px)}
+.bar h1{margin:0;font-size:1.15rem;font-weight:650;letter-spacing:-.01em}
+.bar .crumb{color:var(--muted);font-size:.85rem}
+.bar .basis-pill{display:none}
+.page{display:grid;gap:1rem;max-width:1440px}
+/* KPI strip */
+.kpis{display:grid;grid-template-columns:1.35fr repeat(4,1fr);background:var(--surface);border-radius:var(--radius);box-shadow:var(--shadow);overflow:hidden}
+.kpi{padding:1rem 1.1rem;border-left:1px solid var(--line);display:grid;gap:.2rem;align-content:start;min-width:0}
+.kpi:first-child{border-left:0}
+.kpi .v{font-family:var(--font-num);font-size:1.45rem;font-weight:500;letter-spacing:-.03em;display:flex;gap:.5rem;align-items:baseline}
+.kpi .v small{font-family:var(--font-ui);font-size:.75rem;color:var(--muted);letter-spacing:0}
+.kpi .s{font-size:.78rem;color:var(--muted);font-family:var(--font-num)}
+.kpi.now .v{font-size:2.3rem}
+.kpi .spark{color:var(--ink-2)}
+.kpi.wind .spark{color:var(--wind)}
+.badge{font-family:var(--font-ui);font-size:.72rem;font-weight:600;padding:.12rem .5rem;border-radius:6px;background:var(--surface-2);color:var(--ink-2);letter-spacing:0}
+.badge.hi{background:color-mix(in oklab,var(--hi) 14%,var(--surface));color:var(--hi)}.badge.lo,.badge.good{background:color-mix(in oklab,var(--lo) 14%,var(--surface));color:var(--lo)}
+/* overview grid */
+.ov{display:grid;grid-template-columns:minmax(0,1fr) 340px;gap:1rem;align-items:start}
+.panel{background:var(--surface);border-radius:var(--radius);box-shadow:var(--shadow);padding:1rem 1.1rem;min-width:0}
+.panel h2{margin:0;font-size:.95rem;font-weight:600}
+.panel .ph{display:flex;flex-wrap:wrap;gap:.6rem;align-items:center;margin-bottom:.3rem}
+.panel .ph .sp{flex:1}
+.panel .sub{color:var(--muted);font-size:.8rem}
+.insp{display:grid;gap:1rem;position:sticky;top:72px}
+.insp .bd-total{font-family:var(--font-num);font-size:2rem;font-weight:500;letter-spacing:-.04em}
+.coming .ladder li{grid-template-columns:1.6rem minmax(6.5rem,1fr) 1fr 3.4rem;padding:.35rem .3rem;font-size:.85rem}
+.coming .ladder b{font-family:var(--font-num);font-weight:500}
+.pl-best b,.pl-cmp b,.readout .ro-p,.u-kpis b,.bd-total{font-family:var(--font-num);font-weight:500;letter-spacing:-.02em}
+.btn{border-radius:9px}.seg{border-radius:9px}.seg button{border-radius:7px}.chip{border-radius:8px}.lenses button{border-radius:9px}
+.group{box-shadow:var(--shadow)}
+.tabbar,.mtop{display:none}
+/* tablet: icon rail */
+@media (max-width:1180px){
+  .ov{grid-template-columns:1fr}
+  .insp{position:static;grid-template-columns:1fr 1fr}
+  .kpis{grid-template-columns:repeat(3,1fr)}
+  .kpi:nth-child(4){border-left:0}.kpi:nth-child(n+4){border-top:1px solid var(--line)}
+  .kpi.now{grid-row:span 2}
+  .kpi:nth-child(4){border-left:1px solid var(--line)}
+}
+@media (max-width:1023px) and (min-width:760px){
+  .app{grid-template-columns:68px minmax(0,1fr)}
+  .side{padding:1rem .6rem;align-items:center}
+  .side .brand{padding:.3rem 0 1rem}.side .brand b,.side a span,.side .foot{display:none}
+  .side a{padding:.65rem}
+}
+/* phone: top bar + tab bar */
+@media (max-width:759px){
+  .app{display:block}
+  .side{display:none}
+  .main{padding:0 max(16px,env(safe-area-inset-right,0px)) calc(96px + env(safe-area-inset-bottom,0px)) max(16px,env(safe-area-inset-left,0px))}
+  .bar{padding:.8rem 0}
+  .bar .basis{display:none}.bar .basis-pill{display:inline-block;margin-left:auto;border:1px solid var(--line-2);background:var(--surface);border-radius:8px;padding:.35rem .6rem;font:inherit;font-size:.8rem;color:var(--ink-2)}
+  .bar .crumb{display:none}
+  .kpis{grid-template-columns:1fr 1fr}
+  .kpi{border-left:0;border-top:1px solid var(--line)}
+  .kpi.now{grid-column:1/-1;grid-row:auto;border-top:0}
+  .kpi:nth-child(odd):not(.now){border-left:1px solid var(--line)}
+  .insp{grid-template-columns:1fr}
+  .tabbar{display:flex;position:fixed;left:0;right:0;bottom:0;z-index:20;background:color-mix(in oklab,var(--surface) 88%,transparent);backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);border-top:1px solid var(--line);padding:6px max(8px,env(safe-area-inset-right,0px)) calc(6px + env(safe-area-inset-bottom,0px)) max(8px,env(safe-area-inset-left,0px))}
+  .tabbar a{flex:1;display:grid;justify-items:center;gap:2px;padding:4px 0;color:var(--muted);text-decoration:none;font-size:.68rem;font-weight:500}
+  .tabbar a .ico{width:22px;height:22px}
+  .tabbar a[aria-current="page"]{color:var(--ink)}
+}
+</style>
+</head>
+<body>
+<div class="app">
+  <aside class="side" aria-label="Sections">
+    <div class="brand"><span class="mark"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M13 2L4.5 13.5H11L10 22l8.5-11.5H12L13 2z"/></svg></span><b>Spot price FI</b></div>
+    <nav id="sidenav" style="display:grid;gap:2px;width:100%"></nav>
+    <div class="foot">
+      <span class="live"><i></i>Published until Fri 23:45</span>
+      <span>Updated 15:02 · <a href="#settings" style="padding:0;display:inline;color:var(--ink-2)">Refresh</a></span>
+      <span class="who"><span>S</span>sami</span>
+    </div>
+  </aside>
+  <div class="main">
+    <div class="bar"><h1 id="title">Overview</h1><span class="crumb" id="crumb"></span><span class="sp"></span><span id="basisSlot"></span></div>
+
+    <section class="page" data-page="now" hidden>
+      <div class="kpis" id="kpis"></div>
+      <div class="ov">
+        <div class="panel">
+          <div class="ph"><h2>Prices</h2><span class="sub" id="chSub"></span><span class="sp"></span>
+            <div class="seg" role="group" aria-label="Period" id="ovP"><button type="button" data-r="1" aria-pressed="false">Today</button><button type="button" data-r="3d" aria-pressed="true">−3 … +2 d</button><button type="button" data-r="7" aria-pressed="false">7 days ahead</button></div>
+            <button class="icon-btn" data-act="layers" aria-label="Layers"></button></div>
+          <div class="readout" id="ro" aria-live="polite"></div>
+          <div id="ovChart"></div>
+          <div id="ovLegend"></div>
+        </div>
+        <aside class="insp">
+          <div class="panel"><div class="ph"><h2>Breakdown</h2><span class="sp"></span><span class="sub" id="selNote">Now · click a bar to change</span></div><div id="bd"></div></div>
+          <div class="panel"><div class="ph"><h2>What would it cost?</h2></div><div id="planner"></div></div>
+          <div class="panel coming"><div class="ph"><h2>Cheapest hours ahead</h2><span class="sp"></span><a class="sub" href="#explore" data-lens="ladder">All</a></div><div id="coming"></div></div>
+        </aside>
+      </div>
+    </section>
+    <section class="page" data-page="explore" hidden><div class="mount"></div></section>
+    <section class="page" data-page="usage" hidden><div class="mount"></div></section>
+    <section class="page" data-page="alerts" hidden><div class="mount" style="max-width:820px"></div></section>
+    <section class="page" data-page="settings" hidden><div class="mount"></div></section>
+  </div>
+</div>
+<nav class="tabbar" id="tabbar" aria-label="Sections"></nav>
+
+<script src="kit.js"></script>
+<script>
+(() => {
+const { $, $$, DAY, TODAY, NOW, H } = EF;
+EF.review('b-studio');
+const TITLES = { now: ['Overview', 'Thursday 15 October'], explore: ['Explore', 'Every view of the prices'], usage: ['Usage', 'Your consumption and what it cost'], alerts: ['Alerts', 'Limits, messages and recipients'], settings: ['Settings', 'Costs, weather, appearance and users'] };
+$('#sidenav').innerHTML = EF.NAV.map(([k, n]) => `<a href="#${k}" data-nav="${k}" title="${n}">${EF.ICON[k]}<span>${n === 'Now' ? 'Overview' : n}</span></a>`).join('');
+$('#tabbar').innerHTML = EF.NAV.map(([k, n]) => `<a href="#${k}" data-nav="${k}">${EF.ICON[k]}${n === 'Now' ? 'Overview' : n}</a>`).join('');
+$('#basisSlot').innerHTML = EF.basisControl() + EF.basisPill();
+$('[data-act="layers"]').innerHTML = EF.ICON.layers;
+
+let range = '3d', sel = null;
+const rangeOf = () => range === '1' ? { from: TODAY, to: TODAY + DAY } : range === '7' ? { from: TODAY, to: TODAY + 7 * DAY } : { from: TODAY - 3 * DAY, to: TODAY + 3 * DAY };
+function kpis() {
+  const ins = EF.insight(), c = ins.c, tr = EF.value(c.t, c.spot, 'transfer', EF.state.vat);
+  const sp = (a, b, s) => EF.spark(EF.agg(a, b, s).map(x => x.avg), 120, 26);
+  const windSp = EF.spark(EF.agg(NOW - 2 * DAY, NOW, 3 * H).map(b => EF.hourly(EF.wind, b.t, b.end)), 120, 26);
+  const cls = c.state || (ins.tone === 'good' ? 'good' : '');
+  $('#kpis').innerHTML = `
+    <div class="kpi now"><span class="lbl">Now · ${EF.hm(c.t)}–${EF.hm(c.end)}</span><span class="v">${EF.f2(c.v)}<small>c/kWh</small></span><span><span class="badge ${cls}">${ins.state}</span></span></div>
+    <div class="kpi"><span class="lbl">Today avg</span><span class="v">${EF.f2(ins.td.avg)}</span><span class="s">${EF.f2(ins.td.lo)} – ${EF.f2(ins.td.hi)}</span>${sp(TODAY, TODAY + DAY, H)}</div>
+    <div class="kpi"><span class="lbl">Tomorrow avg</span><span class="v">${EF.f2(ins.tm.avg)}</span><span class="s">${EF.f2(ins.tm.lo)} – ${EF.f2(ins.tm.hi)}</span>${sp(TODAY + DAY, TODAY + 2 * DAY, H)}</div>
+    <div class="kpi"><span class="lbl">Cheapest 3 h</span><span class="v">${EF.hm(ins.ch.t)}<small>${EF.rel(ins.ch.t)}</small></span><span class="s">avg ${EF.f2(ins.ch.avg)} · transfer now ${EF.f2(tr)}</span></div>
+    <div class="kpi wind"><span class="lbl">Wind power</span><span class="v">${EF.int(EF.windNow())}<small>MW</small></span>${windSp}</div>`;
+}
+function chart() {
+  const r = rangeOf(), ro = $('#ro'), cur = () => ro.innerHTML = EF.readout(EF.nowBucket());
+  $('#chSub').textContent = `${EF.dayLabel(r.from)} – ${EF.dayLabel(r.to - 1)}`;
+  cur();
+  EF.bars($('#ovChart'), { ...r, height: innerWidth < 760 ? 220 : 300, onHover: b => ro.innerHTML = EF.readout(b), onLeave: cur, onPick: b => { sel = b; inspect(); if (innerWidth < 1181) EF.showBreakdown(b); } });
+  $('#ovLegend').innerHTML = EF.legend();
+}
+function inspect() {
+  const b = sel || EF.nowBucket();
+  $('#bd').innerHTML = EF.breakdown(b);
+  $('#selNote').textContent = sel ? 'Selected · click Now to reset' : 'Now · click a bar to change';
+}
+$('#ovP').onclick = e => { const b = e.target.closest('[data-r]'); if (!b) return; range = b.dataset.r; $$('#ovP button').forEach(x => x.setAttribute('aria-pressed', x === b)); chart(); };
+$('#selNote').onclick = () => { sel = null; inspect(); };
+document.addEventListener('click', e => { const l = e.target.closest('a[data-lens]'); if (l) EF.set({ lens: l.dataset.lens }); });
+function overview() { kpis(); chart(); inspect(); EF.ladder($('#coming'), { onPick: b => { sel = b; inspect(); } }); $$('#coming li').forEach((li, k) => li.hidden = k >= 5); }
+
+const mounted = {};
+const mount = {
+  now: () => { EF.planner($('#planner'), { preset: 0 }); EF.on('change', p => ('mode' in p || 'vat' in p || p.costs || p.theme || 'layers' in p || 'yz' in p) && !$('[data-page="now"]').hidden && overview()); },
+  explore: () => EF.explore($('[data-page="explore"] .mount'), { layout: 'rail' }),
+  usage: () => EF.usagePage($('[data-page="usage"] .mount')),
+  alerts: () => EF.alertsPage($('[data-page="alerts"] .mount')),
+  settings: () => EF.settingsPage($('[data-page="settings"] .mount')),
+};
+EF.router(v => {
+  $$('.page').forEach(p => p.hidden = p.dataset.page !== v);
+  $('#title').textContent = TITLES[v][0]; $('#crumb').textContent = TITLES[v][1];
+  if (!mounted[v]) { mounted[v] = 1; mount[v](); } else EF.emit('change', {});
+  if (v === 'now') overview();
+  scrollTo(0, 0);
+});
+let rz; addEventListener('resize', () => { clearTimeout(rz); rz = setTimeout(() => !$('[data-page="now"]').hidden && chart(), 150); });
+})();
+</script>
+</body>
+</html>

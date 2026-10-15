@@ -52,7 +52,7 @@ if (LOCAL) {
   $('#smtpCard summary').innerHTML = 'Email <small>EmailJS</small>';
   $('#emailHint').innerHTML = LOCAL.emailHint;
   $('#tzNote').textContent = 'your computer time';
-  ['#account', '#logout', '#who'].forEach(s => $(s).classList.add('hidden'));
+  ['#account', '#logout', '#who', '#accountCard'].forEach(s => $(s).classList.add('hidden'));
 }
 
 const recipRow = (r = {}) => `<div class="recip">
@@ -92,19 +92,19 @@ function refreshValues() { if (!D) return; renderCards(); renderBreakdown(); buc
 let saveTimer = null;
 const saveNow = async () => {
   clearTimeout(saveTimer); saveTimer = null;
-  await putSettings({ ...readFields($('#alarmbar')), ...readFields($('#settings')) });
+  await putSettings(Object.assign({}, ...$$('.autosave').map(readFields)));
   monthlyInfo(); refreshValues();
 };
 const autosave = e => {
-  if (e?.target?.closest?.('#usersCard, #wxCard')) return;  // the users box has its own Add button, the weather place is picked from a list
+  if (e?.target?.closest?.('#usersCard, #wxCard, #layoutCard')) return;  // the users box has its own Add button, the weather place is picked from a list, the layout saves itself
   clearTimeout(saveTimer);
   saveTimer = setTimeout(() => saveNow().then(() => flash('Saved ✓'), e => flash('Not saved: ' + e.message)), 400);
 };
-for (const root of [$('#alarmbar'), $('#settings')]) ['input', 'change'].forEach(ev => root.addEventListener(ev, autosave));
+for (const root of $$('.autosave')) ['input', 'change'].forEach(ev => root.addEventListener(ev, autosave));  // Alerts and Settings
 $('#recips').addEventListener('click', e => {  // remove a recipient (a handler must not return false: that would block the tick boxes)
   if (e.target.classList.contains('del')) { e.target.closest('.recip').remove(); autosave(); }
 });
-$('#settings').addEventListener('click', e => {  // ✕ turns an extra send time off (a time box cannot be emptied by hand on every phone)
+document.addEventListener('click', e => {  // ✕ turns an extra send time off (a time box cannot be emptied by hand on every phone)
   const b = e.target.closest('[data-clr]'); if (!b) return;
   const el = $(`[data-k=${b.dataset.clr}]`); el.value = ''; el.dispatchEvent(new Event('input', { bubbles: true }));
 });
@@ -336,7 +336,7 @@ async function boot() {
     return;
   }
   if (me.must_change) return openChange(true);
-  $('#who').textContent = '👤 ' + me.username;
+  $('#who').textContent = 'Signed in as ' + me.username + (me.is_admin ? ' (admin)' : '');
   if (me.dev) ['#account', '#logout'].forEach(s => $(s).classList.add('hidden'));
   $('#usersCard').classList.toggle('hidden', !me.is_admin);
   if (me.is_admin) api('users').then(renderUsers, () => {});
@@ -379,14 +379,15 @@ function seg(id, cur, fn) {
   return mark;
 }
 seg('mode', mode, v => { store('mode', mode = v); build(); });
-const markTab = seg('tabs', tab, v => {
-  tab = v;
+const markTab = seg('tabs', tab, v => onTab(v));
+function onTab(v) {  // also used by home.js: the Usage section is the Consumption tab
+  markTab(v); tab = v;
   const c = D?.consumption;  // the Consumption tab opens on the last week of imported use when none is in view
   if (v === 'consumption' && c?.length && !c.some(r => r[0] * 1000 >= view.min && r[0] * 1000 < view.max)) {
     const end = (c.at(-1)[0] + D.consRes) * 1000; view = { min: Math.max(c[0][0] * 1000, end - 7 * DAY), max: end }; $('#preset').value = 'custom';
   }
   build();
-});
+}
 const check = (id, cur, fn) => { $('#' + id).checked = cur; $('#' + id).onchange = e => fn(e.target.checked); };
 check('vat', vat, v => { vat = v; store('vat', v ? '1' : '0'); build(); });
 check('avg', avgOn, v => { avgOn = v; store('avg', v ? '1' : '0'); update(); });
@@ -479,6 +480,7 @@ async function load(days = loadedDays) {
   D.consumption ||= []; D.consRes = Consumption.resolution(D.consumption);
   if (!D.consumption.length) $('#chelp').open = true;  // nothing imported yet: show how to get the file
   if (!filled) { fillSettings(); filled = true; }
+  Home.layout(S.ui_layout);  // the user's own layout (Signal, Studio or Calm), saved with their settings
   $('#wxPlace').textContent = S.wx_place;
   renderSchedule();
   if (!view) view = defaultView();
@@ -1156,26 +1158,9 @@ cv.addEventListener('touchmove', e => {
 cv.addEventListener('touchend', e => { if (!e.touches.length) t0 = null; });
 
 // ---------------------------------------------------------------- cards and status
-function renderCards() {
-  const now = Date.now() / 1000, a = D.actual, t0 = midnight() / 1000, t1 = t0 + 86400, t2 = t1 + 86400;
-  const stats = rows => { if (!rows.length) return null; const v = rows.map(val); return { avg: v.reduce((x, y) => x + y) / v.length, min: Math.min(...v), max: Math.max(...v) }; };
-  const cur = a.filter(r => r[0] <= now).at(-1);
-  const today = stats(a.filter(r => r[0] >= t0 && r[0] < t1)), tom = stats(a.filter(r => r[0] >= t1 && r[0] < t2));
-  const best = cheapest();
-  const w = D.wind_actual.filter(r => r[0] <= now).at(-1) || D.wind.find(r => r[0] >= now - 3600);
-  // the shown price (spot or total, with or without VAT) against the limits of the alarm bar
-  const p = cur && val(cur), cls = p == null ? '' : S.high_on && p >= S.high ? 'hi' : S.low_on && p <= S.low ? 'lo' : '';
-  const tr = cur && priceParts(S, cur[0], cur[1]);
-  const card = (id, t, v, sub, c = '') => `<div class="card stat ${c}" data-id="${id}"><button class="info" type="button" aria-label="What does this mean?">i</button>` +
-    `<small>${t}</small><b>${v}</b><span>${sub}</span><p class="desc${openInfo.has(id) ? '' : ' hidden'}">${INFO[id]}</p></div>`;
-  $('#cards').innerHTML =
-    card('now', `Now · ${NAMES[mode]}`, fmt(p), `c/kWh ${vat ? 'incl.' : 'excl.'} VAT` + (cur ? ' · ' + hm(cur[0] * 1000) : ''), cls) +
-    card('transfer', 'Transfer now', tr ? fmt(priceValue(S, cur[0], cur[1], 'transfer', vat)) : '–', tr ? `${tr.night ? 'night' : 'day'} rate + tax · ${vat ? 'incl.' : 'excl.'} VAT` : '') +
-    card('today', 'Today avg', today ? fmt(today.avg) : '–', today ? `${fmt(today.min)} – ${fmt(today.max)}` : '') +
-    card('tomorrow', 'Tomorrow avg', tom ? fmt(tom.avg) : '–', tom ? `${fmt(tom.min)} – ${fmt(tom.max)}` : 'published ~14:00') +
-    card('cheap', 'Cheapest 3h', best ? hm(best.ts * 1000) : '–', best ? `avg ${fmt(best.avg)} c/kWh` : '') +
-    card('wind', 'Wind', w ? Math.round(w[1]) : '–', 'MW' + (w ? ' · ' + hm(w[0] * 1000) : ''));
+function renderCards() {  // the Now page (home.js) shows the current price, the day's numbers and the helper in the chosen layout
   Views.helper();
+  Home.render();
 }
 const INFO = {
   now: 'Price of the current 15-minute slot: the spot price or your total cost (buttons above the chart), with or without VAT (checkbox).',
@@ -1185,37 +1170,39 @@ const INFO = {
   cheap: 'Start time of the cheapest 3-hour block in the already published prices from now on, and its average price. Good for laundry, dishwasher or car charging.',
   wind: 'Latest wind power production in Finland (or the forecast) in megawatts. More wind usually means cheaper electricity.',
 };
-const openInfo = new Set();
-$('#cards').onclick = e => {
-  const c = e.target.closest('.info')?.closest('.stat'); if (!c) return;
-  openInfo.has(c.dataset.id) ? openInfo.delete(c.dataset.id) : openInfo.add(c.dataset.id);
-  $('.desc', c).classList.toggle('hidden');
-};
-
-function renderBreakdown() {  // all cost parts of the picked chart point (default: now)
-  if (!D) return;
-  const t = sel ?? Date.now() / 1000, la = lastActual();
+// all cost parts of one slot (seconds), as HTML: the Explore card, and the breakdown of the Now page (home.js)
+function breakdownHtml(t, isNow) {
+  const la = lastActual();
   let row = t < la + 900 ? D.actual.filter(r => r[0] <= t).at(-1) : null, est = false;
   if (!row) { row = D.forecast.filter(r => r[0] <= t).at(-1); est = true; }
-  const box = $('#breakdown');
-  if (!row) { box.innerHTML = '<h3>Price breakdown</h3><p class="hint">Click a point in the chart.</p>'; return; }
-  const p = priceParts(S, row[0], row[1]), line = (l, v, c = '') => `<tr class="${c}"><td>${l}</td><td>${fmt(v)}</td></tr>`;
-  box.innerHTML = `<h3>Price breakdown <small>c/kWh</small></h3>
-    <p class="hint">${dayFmt(row[0] * 1000)} ${hm(row[0] * 1000)} · ${est ? 'estimate' : 'published price'}${sel == null ? ' (now)' : ''}. Click a point in the chart to change.</p>
-    <table>${line('Spot price excl. VAT', p.spotEx)}${line(`VAT ${S.vat} % on spot`, p.vatOnSpot)}${line('Provider margin', p.margin)}` +
-    `${line('Other per kWh', p.other)}${line(`Transfer (${p.night ? 'night' : 'day'})`, p.transferFee)}${line('Electricity tax', p.tax)}` +
-    `${p.monthly ? line('Monthly fees per kWh', p.monthly) : ''}${line('Total incl. VAT', p.total, 'sum')}` +
-    `${line('Total excl. VAT', p.spotEx + (p.total - p.spotEx - p.vatOnSpot) / p.k, 'muted')}</table>`;
+  if (!row) return '<p class="hint">No price for this time. Tap a bar in the chart.</p>';
+  const p = priceParts(S, row[0], row[1]), exT = p.spotEx + (p.total - p.spotEx - p.vatOnSpot) / p.k, ms = row[0] * 1000;
+  const kind = est ? 'est' : ms > Date.now() ? 'fix' : 'pub';
+  const parts = [['Spot price excl. VAT', p.spotEx, 'c1'], [`VAT ${S.vat} % on spot`, p.vatOnSpot, 'c2'], ['Provider margin', p.margin, 'c3'], ['Other per kWh', p.other, 'c3'],
+    [`Transfer (${p.night ? 'night' : 'day'})`, p.transferFee, 'c4'], ['Electricity tax', p.tax, 'c5'], ...p.monthly ? [['Monthly fees per kWh', p.monthly, 'c6']] : []];
+  const pos = parts.reduce((a, x) => a + Math.max(0, x[1]), 0) || 1;
+  return `<p class="bd-when">${dayFmt(ms)} ${hm(ms)}${isNow ? ' · now' : ''} <span class="tag k-${kind}">${{ pub: 'published price', fix: 'fixed, still to come', est: 'estimate' }[kind]}</span></p>
+    <p class="bd-total"><b>${fmt(p.total)}</b> <small>c/kWh incl. VAT</small></p>
+    <div class="stack" aria-hidden="true">${parts.filter(x => x[1] > 0).map(x => `<i class="${x[2]}" style="flex:${(x[1] / pos).toFixed(4)}"></i>`).join('')}</div>
+    <table>${parts.map(([l, v, c]) => `<tr><td><i class="dotk ${c}"></i>${l}</td><td>${fmt(v)}</td></tr>`).join('')}` +
+    `<tr class="sum"><td>Total incl. VAT</td><td>${fmt(p.total)}</td></tr><tr class="muted"><td>Total excl. VAT</td><td>${fmt(exT)}</td></tr></table>`;
+}
+function renderBreakdown() {  // the picked chart point (default: now)
+  if (!D) return;
+  $('#breakdown').innerHTML = `<h3>Price breakdown <small>c/kWh</small></h3>${breakdownHtml(sel ?? Date.now() / 1000, sel == null)}` +
+    '<p class="hint">Tap a bar, cell or row to change.</p>';
 }
 function status() {
   if (!D) return;
   const la = lastActual();
   $('#status').textContent = `Published prices until ${la ? new Date(la * 1000).toLocaleString('fi-FI') : '–'}` +
     ` · Fingrid ${D.fingrid ? 'on' : 'off'}` + (D.errors?.length ? ' · ⚠ ' + D.errors.join(' · ') : '');
+  $('#sideStatus').textContent = la ? `Prices published until ${WD[new Date(la * 1000).getDay()]} ${hm(la * 1000)}` : '';
 }
 
 GridView.init();
 Views.init();
+Home.init();
 matchMedia('(prefers-color-scheme: dark)').addEventListener('change', build);
 let rz; addEventListener('resize', () => { clearTimeout(rz); rz = setTimeout(() => { bucket = null; update(); }, 250); });
 document.addEventListener('visibilitychange', () => !document.hidden && $('#main:not(.hidden)') && load());
