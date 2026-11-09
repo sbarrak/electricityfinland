@@ -289,7 +289,8 @@ dialog label.custom input{width:36px;height:28px;padding:0;border:0;background:n
 /* v18: readout strip, night shading, cheapest-hours ladder, calendar, cost helper */
 :root{--night:rgba(30,58,138,.07)}
 @media (prefers-color-scheme:dark){:root{--night:rgba(148,163,184,.09)}}
-.readout{display:flex;flex-wrap:wrap;gap:2px 14px;align-items:baseline;min-height:2.6em;padding:6px 10px;margin:2px 0 4px;border-radius:10px;background:var(--bg);font-size:.9em;font-variant-numeric:tabular-nums}
+.readout{display:block;height:4.6em;overflow:hidden;padding:6px 10px;margin:2px 0 4px;border-radius:10px;background:var(--bg);font-size:.9em;font-variant-numeric:tabular-nums}
+.readout>div{display:flex;flex-wrap:nowrap;gap:0 14px;align-items:baseline;height:1.6em;line-height:1.6em;white-space:nowrap;overflow:hidden}  /* two fixed lines: no jumping chart */
 .readout .rp{font-weight:700;font-size:1.1em}
 .readout .rp.hi{color:var(--hi)} .readout .rp.lo{color:var(--lo)}
 .readout span:not(.rp):not(.hint){color:var(--muted)}

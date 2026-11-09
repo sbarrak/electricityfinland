@@ -149,12 +149,15 @@
     return out.length ? out : [''];
   };
   const sentOk = v => String(v).startsWith('sent');
+  const skipped = v => String(v).startsWith('skipped');  // that channel is not set up: not an error, nothing to retry
+  // a scheduled message has somebody to go to: WhatsApp on + a recipient with phone and API key, or Email on + EmailJS + a recipient with an address; otherwise nothing is sent
+  const canSend = s => !!((s.wa_on && s.recipients.some(r => r.phone && r.apikey)) || (s.email_on && s.ejs_service && s.ejs_template && s.ejs_key && s.recipients.some(r => r.email)));
   async function notify(s, m, force = null) {  // m: {subject, wa, text}. force: null = scheduled message, 'all' | 'whatsapp' | 'email' = test
     const out = {}, wa = ['all', 'whatsapp'].includes(force) || (!force && s.wa_on), em = ['all', 'email'].includes(force) || (!force && s.email_on);
     for (const r of s.recipients) {
       const who = r.name || r.phone || r.email;
       if (wa && r.phone) {
-        if (!r.apikey) out[who + ' WhatsApp'] = 'missing CallMeBot API key';
+        if (!r.apikey) out[who + ' WhatsApp'] = force ? 'missing CallMeBot API key' : 'skipped: no CallMeBot API key';
         else {  // CallMeBot sends no CORS headers: fire-and-forget, the response cannot be read
           try {
             for (const [i, part] of waParts(m.wa).entries()) {
@@ -166,7 +169,7 @@
         }
       }
       if (em && r.email) {
-        if (!(s.ejs_service && s.ejs_template && s.ejs_key)) out[who + ' email'] = 'EmailJS not configured';
+        if (!(s.ejs_service && s.ejs_template && s.ejs_key)) out[who + ' email'] = force ? 'EmailJS not configured' : 'skipped: EmailJS not configured';
         else await fetch('https://api.emailjs.com/api/v1.0/email/send', {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ service_id: s.ejs_service, template_id: s.ejs_template, user_id: s.ejs_key,
@@ -226,7 +229,7 @@
     return out;
   }
   function recordSend(due, out) {  // delivered to someone = done; only failures = try again later; nobody to send to = tried again until the grace period ends
-    const ok = Object.values(out).some(sentOk), bad = Object.entries(out).filter(([k, v]) => k !== 'info' && !sentOk(v));
+    const ok = Object.values(out).some(sentOk), bad = Object.entries(out).filter(([k, v]) => k !== 'info' && !sentOk(v) && !skipped(v));
     if (ok) put('sent_' + due.slot, due.key);
     else if (bad.length) { const tr = get('tries_' + due.slot, {}); put('tries_' + due.slot, { key: due.key, at: now(), n: (tr.key === due.key ? tr.n : 0) + 1 }); console.warn('message not delivered, will try again', bad); }
     if (ok || bad.length) put('last_send', { at: Math.floor(now()), time: due.time, ok: ok && !bad.length, results: out });
@@ -253,7 +256,7 @@
     sending = true;
     try {
       const s = settings();
-      for (const due of dueMessages(s)) recordSend(due, await notify(s, due.msg));
+      if (canSend(s)) for (const due of dueMessages(s)) recordSend(due, await notify(s, due.msg));  // no WhatsApp / email set up: nothing is sent, no error
     } finally { sending = false; }
   }
 

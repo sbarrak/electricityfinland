@@ -380,6 +380,19 @@ def sent_ok(v):
     return str(v).startswith("sent")
 
 
+def skipped(v):  # nothing was sent because that channel is not set up: not an error, nothing to retry
+    return str(v).startswith("skipped")
+
+
+def can_send(s):
+    """True when a scheduled message has anybody to go to: WhatsApp switched on and a recipient with a phone number + API key, or
+    Email switched on, an email server and a recipient with an address. Without any, the scheduler sends nothing and logs nothing."""
+    rs = s.get("recipients") or []
+    wa = s.get("wa_on") and any(r.get("phone") and r.get("apikey") for r in rs)
+    em = s.get("email_on") and s.get("smtp_host") and any(r.get("email") for r in rs)
+    return bool(wa or em)
+
+
 async def notify(c, s, m, force=None):
     """Send message m (see compose) to all recipients. force: None = scheduled message (respects the WhatsApp / Email switches),
     'all' | 'whatsapp' | 'email' = test. Returns {"<who> WhatsApp|email": "sent" | "failed: ...", ...}."""
@@ -390,7 +403,7 @@ async def notify(c, s, m, force=None):
         who = r["name"] or r["phone"] or r["email"]
         if wa and r["phone"]:  # WhatsApp when a phone number is set, email when an address is set
             if not r["apikey"]:
-                out[f"{who} WhatsApp"] = "missing CallMeBot API key"
+                out[f"{who} WhatsApp"] = "missing CallMeBot API key" if force else "skipped: no CallMeBot API key"
             else:
                 try:
                     for i, part in enumerate(wa_parts(m["wa"])):
@@ -405,7 +418,7 @@ async def notify(c, s, m, force=None):
                     out[f"{who} WhatsApp"] = f"failed: {e}"
         if em and r["email"]:
             if not s["smtp_host"]:
-                out[f"{who} email"] = "email server not configured"
+                out[f"{who} email"] = "email server not configured" if force else "skipped: email server not configured"
             else:
                 try:
                     await asyncio.to_thread(send_mail, s, r["email"], m["subject"], m["text"], m.get("html"))
@@ -649,7 +662,7 @@ def record_send(uid, due, out):
     """Remember the outcome: delivered to at least one recipient = done; only failures = try again later (up to MAX_TRIES);
     nobody to send to (switches off, no recipients) = nothing is used up, it is tried again until the grace period ends."""
     ok = [k for k, v in out.items() if sent_ok(v)]
-    bad = {k: v for k, v in out.items() if k != "info" and not sent_ok(v)}
+    bad = {k: v for k, v in out.items() if k != "info" and not sent_ok(v) and not skipped(v)}
     if ok:
         kv_set(sent_key(uid, due["slot"]), due["key"])
     elif bad:
@@ -692,6 +705,8 @@ async def worker():
             for (uid,) in db.execute("SELECT id FROM users").fetchall():
                 try:
                     s = settings(uid)
+                    if not can_send(s):  # no WhatsApp or email set up: ignore, nothing to send and nothing to fail
+                        continue
                     for due in due_messages(s, uid):
                         record_send(uid, due, await notify(c, s, due["msg"]))
                 except Exception:

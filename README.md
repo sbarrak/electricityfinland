@@ -10,7 +10,7 @@ Self-hosted monitor for Finnish electricity spot prices (Nord Pool day-ahead, 15
 - **Sections**: **Now** (the chosen layout, the cost helper and the cheapest hours ahead), **Explore** (the full chart, its views, Estimate vs actual and the Grid View, with the price breakdown beside it), **Usage** (the imported consumption), **Alerts** (limits, channels, schedule, recipients, messages) and **Settings** (layout, price colour, costs, monthly fees, weather place, email server, users, account). On a computer or tablet they are in the top bar (Studio: the sidebar), on a phone in the tab bar at the bottom. Each section has its own address (`#now`, `#explore` …), so the back button works.
 - **Spot / Total cost** and **Incl. VAT** are at the top of the page and apply to every number and chart (on a phone, tap the pill to change them). The alerts keep their own basis (Alerts → Compare on), so the red / green colours do not change with it.
 - On the Now page, tap a bar (or a wedge of the dial, a cheapest window or a row) for its **price breakdown**; it opens as a panel that slides up on a phone.
-- **Zoomable chart**: hours on the axis with the day below, 15-minute steps at the closest zoom and up to one point per day when zoomed out. Opens on today −3 days … +2 days.
+- **Zoomable chart**: hours on the axis with the day below, 15-minute steps at the closest zoom and up to one point per day when zoomed out. Opens on yesterday … +2 days.
   - Zoom: pinch on the trackpad (or Ctrl + mouse wheel), pinch on iPad/iPhone, or the − / + buttons (⇔ time, ⇕ price). **Reset** returns to the default view.
   - Move: scroll bars under and beside the chart, two-finger swipe on the trackpad, or drag sideways on a touch screen.
   - **From / To** dates and presets (last week, month, 3 months, year). **Average** shows three averages for the visible period, each over its own part of the chart: past published prices (the price line colour), fixed future prices (violet) and the estimate (orange). The labels move apart when they would overlap.
@@ -141,3 +141,10 @@ run-dev.bat / run-dev.sh  same without login, for testing
 nginx/default.conf
 ```
 Update: `git pull && docker compose up -d --build`.
+
+## Tests
+
+```bash
+pip install fastapi httpx pytest tzdata && python -m pytest tests   # backend: price maths, skipped alerts
+node --test tests/*.test.js                                          # frontend: price parts, Finnish time, chart / readout rules
+```

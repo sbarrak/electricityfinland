@@ -220,11 +220,12 @@ const Home = (() => {
 
   // ---------------------------------------------------------------- shared pieces
   function readoutHtml(p) {
-    if (!p) { const c = current(); if (!c) return '<span class="hint">Move over the bars, or drag a finger along them, to read a price.</span>';
+    if (!p) { const c = current(); if (!c) return '<div><span class="hint">Move over the bars, or drag a finger along them, to read a price.</span></div><div></div>';
       p = points(c[0] * 1000, c[0] * 1000 + 9e5, 900)[0]; if (!p) return ''; }
     const end = p.x + p.w, w = wxOf(p.x, end), wm = windMap(p.x, end, Math.max(3600, p.w / 1000)), wv = [...wm].find(([t]) => t <= p.x && p.x < t + Math.max(H, p.w))?.[1];
-    return `<b>${p.now ? 'Now · ' : ''}${rel(p.x)} ${hm(p.x)}–${hm(end)}</b><span class="rp ${p.state}">${p.state === 'hi' ? '▲ ' : p.state === 'lo' ? '▼ ' : ''}${fmt(p.y)} c/kWh</span>` +
-      `<span class="tag k-${p.kind}">${KIND[p.kind]}</span>${w ? `<span>${wxUse(wxIcon(w))} ${w.temp.toFixed(1)} °C · ${Math.round(w.ms)} m/s</span>` : ''}${wv != null ? `<span>wind ${Math.round(wv).toLocaleString('en-GB')} MW</span>` : ''}`;
+    // two fixed lines (price, then weather and wind): the box keeps its height whatever is shown
+    return `<div><b>${p.now ? 'Now · ' : ''}${rel(p.x)} ${hm(p.x)}–${hm(end)}</b><span class="rp ${p.state}">${p.state === 'hi' ? '▲ ' : p.state === 'lo' ? '▼ ' : ''}${fmt(p.y)} c/kWh</span>` +
+      `<span class="tag k-${p.kind}">${KIND[p.kind]}</span></div><div>${w ? `<span>${wxUse(wxIcon(w))} ${w.temp.toFixed(1)} °C · ${Math.round(w.ms)} m/s</span>` : ''}${wv != null ? `<span>wind ${Math.round(wv).toLocaleString('en-GB')} MW</span>` : ''}</div>`;
   }
   const keys = () => '<span><i class="k-past"></i>Published</span><span><i class="k-fix"></i>Fixed, still to come</span><span><i class="k-est"></i>Estimate</span>' +
     `<span><i class="k-hi"></i>▲ at or above ${S.high_on ? S.high : '–'}</span><span><i class="k-lo"></i>▼ at or below ${S.low_on ? S.low : '–'}</span><span><i class="k-band"></i>Cheapest 3 h</span>`;
@@ -262,7 +263,7 @@ const Home = (() => {
     studio: `<div class="st-kpis" id="hKpis"></div>
       <div class="st-ov">
         <div class="card hcard"><div class="hd"><h3>Prices</h3><span class="sub" id="hSub"></span><span class="sp"></span>
-          <div class="seg" id="hRange" role="group" aria-label="Period"><button type="button" data-v="1">Today</button><button type="button" data-v="3d">−3 … +2 d</button><button type="button" data-v="7">7 days ahead</button></div></div>
+          <div class="seg" id="hRange" role="group" aria-label="Period"><button type="button" data-v="1">Today</button><button type="button" data-v="3d">−1 … +2 d</button><button type="button" data-v="7">7 days ahead</button></div></div>
           <div class="readout" id="hRo" aria-live="polite"></div><div id="hChart" class="hchartwrap"></div><p class="keys"><!--keys--></p></div>
         <aside class="st-insp">
           <div class="card"><div class="hd"><h3>Price breakdown</h3><span class="sp"></span><button type="button" class="linkbtn" id="hNowBtn" hidden>Back to now</button></div><div id="hBd" class="bd"></div></div>
@@ -314,7 +315,7 @@ const Home = (() => {
       `<div class="kpi"><span class="lbl">Cheapest 3 h</span><span class="v">${ch ? hm(ch.ts * 1000) : '–'}<small>${ch ? rel(ch.ts * 1000) : ''}</small></span><span class="s">${ch ? `avg ${fmt(ch.avg)}` : ''}${c ? ` · transfer now ${fmt(tr)}` : ''}</span></div>` +
       `<div class="kpi wind"><span class="lbl">Wind power</span><span class="v">${wn ? Math.round(wn[1]).toLocaleString('en-GB') : '–'}<small>MW</small></span>${spark(windSeries())}</div>`;
     qa('#hRange button').forEach(b => b.classList.toggle('on', b.dataset.v === studioRange));
-    const r = studioRange === '1' ? [midnight(), midnight(1)] : studioRange === '7' ? [midnight(), midnight(7)] : [midnight(-3), midnight(3)];
+    const r = studioRange === '1' ? [midnight(), midnight(1)] : studioRange === '7' ? [midnight(), midnight(7)] : [midnight(-1), midnight(3)];
     q('#hSub').textContent = `${dayFmt(r[0])} – ${dayFmt(r[1] - 1)}`;
     q('#hRo').innerHTML = readoutHtml(null);
     bars(q('#hChart'), chartOpts({ a: r[0], b: r[1], height: innerWidth < 760 ? 210 : 290, wind: windOn, wx: wxOn, temp: tempOn }));

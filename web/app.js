@@ -18,6 +18,7 @@ const MAX_DAYS = 2200, DAY = 864e5, MIN_SPAN = 3 * 36e5, BUCKETS = [900, 3600, 1
 const RES = { 900: '15 min', 3600: '1 h', 10800: '3 h', 21600: '6 h', 86400: '1 day' };
 const NAMES = { spot: 'spot', total: 'total cost' };
 let priced = [], costs = new Map();  // Consumption tab: [[ts, kWh, c/kWh]] and the cost per chart point
+let tempLo = -Infinity;  // lowest temperature label of the y2 axis: the bottom of the price panel
 let D = null, S = {}, chart = null, filled = false, loadedDays = 60, bucket = null, avgs = [], tickStep = 1, me = {};
 let mode = store('mode') === 'spot' ? 'spot' : 'total', vat = store('vat') !== '0', avgOn = store('avg') === '1';
 let tab = 'prices', view = null, yZoom = 1, yPos = 0.5, touched = 0, sel = null;  // sel: chart point picked for the breakdown
@@ -79,6 +80,7 @@ function monthlyInfo() {
 function readFields(root) {  // the settings inside root (+ recipients when root holds them)
   const o = {};
   $$('[data-k]', root).forEach(el => {
+    if (el.type === 'number' && el.value.trim() === '') return;  // an empty number box (mid-typing) must not save 0: a fee of 0 made the price too low
     o[el.dataset.k] = el.type === 'checkbox' ? el.checked : el.type === 'number' ? +el.value : el.value.trim();
   });
   if ($('#recips', root)) o.recipients = $$('.recip', root).map(row => Object.fromEntries($$('[data-r]', row).map(el =>
@@ -432,7 +434,7 @@ $('#cDel').onclick = async () => {
 };
 
 const midnight = (days = 0) => { const d = new Date(); d.setHours(0, 0, 0, 0); d.setDate(d.getDate() + days); return +d; };
-const defaultView = () => ({ min: midnight(-3), max: midnight(3) });
+const defaultView = () => ({ min: midnight(-1), max: midnight(3) });  // yesterday … +2 days
 const isoDate = ms => { const d = new Date(ms); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
 async function showRange(min, max) {
   touched = 0;
@@ -619,7 +621,7 @@ const overlay = {
     if (showThr()) { if (S.high_on) hline(S.high, css('--hi')); if (S.low_on) hline(S.low, css('--lo')); }
     if (showTemp() && c.scales.y2) {  // a faint 0 °C line, where the temperature turns from red to blue
       const py = c.scales.y2.getPixelForValue(0);
-      if (py > top && py < bottom) { g.setLineDash([2, 4]); g.strokeStyle = TEMP.cold; g.globalAlpha = .6; g.beginPath(); g.moveTo(left, py); g.lineTo(right, py); g.stroke(); g.globalAlpha = 1; }
+      if (py > top && py < y.bottom) { g.setLineDash([2, 4]); g.strokeStyle = TEMP.cold; g.globalAlpha = .6; g.beginPath(); g.moveTo(left, py); g.lineTo(right, py); g.stroke(); g.globalAlpha = 1; }
     }
     if (avgOn) {  // one average per part of the chart, drawn over that part; labels move up when they would overlap
       const placed = [];
@@ -731,7 +733,7 @@ const bands = {  // behind the bars: the night-tariff hours and the cheapest 3 h
       const col = css('--night'), d = new Date(view.min); d.setMinutes(0, 0, 0);
       let start = null;
       for (let i = 0; +d <= view.max + 36e5 && i < 800; i++, d.setHours(d.getHours() + 1)) {
-        const n = isNight(d.getHours()) && +d < view.max;
+        const n = isNight(finHour(+d / 1000)) && +d < view.max;
         if (n && start == null) start = +d;
         if (!n && start != null) { band(start, +d, col); start = null; }
       }
@@ -778,16 +780,16 @@ function readout(items) {
   const nowMs = Date.now();
   if (!items) items = pointsAt(chart, nowMs);
   const pr = items.find(i => i.dataset.kind === 'price');
-  if (!items.length || !pr) { el.innerHTML = '<span class="hint">Move over the bars, or drag a finger along them, to read a price.</span>'; return; }
+  if (!items.length || !pr) { el.innerHTML = '<div><span class="hint">Move over the bars, or drag a finger along them, to read a price.</span></div><div></div>'; return; }
   const t = pr.raw.x, end = t + Math.max(bucket, 900) * 1000, isNow = t <= nowMs && nowMs < end, c = limitColor(pr.raw);
   const kind = pr.dataset.borderDash ? 'estimate' : t > nowMs ? 'fixed' : 'published';
-  let h = `<b>${isNow ? 'Now · ' : ''}${dayFmt(t)} ${hm(t)}–${hm(end)}</b><span class="rp${c === limCol.hi ? ' hi' : c === limCol.lo ? ' lo' : ''}">${c === limCol.hi ? '▲ ' : c === limCol.lo ? '▼ ' : ''}${fmt(pr.raw.y)} c/kWh</span>` +
-    `<span>${kind}${bucket > 900 ? ', average' : ''}${pr.raw.hi > pr.raw.lo ? ` · ${fmt(pr.raw.lo)} – ${fmt(pr.raw.hi)}` : ''}</span>`;
+  let h = `<div><b>${isNow ? 'Now · ' : ''}${dayFmt(t)} ${hm(t)}–${hm(end)}</b><span class="rp${c === limCol.hi ? ' hi' : c === limCol.lo ? ' lo' : ''}">${c === limCol.hi ? '▲ ' : c === limCol.lo ? '▼ ' : ''}${fmt(pr.raw.y)} c/kWh</span>` +
+    `<span>${kind}${bucket > 900 ? ', average' : ''}${pr.raw.hi > pr.raw.lo ? ` · ${fmt(pr.raw.lo)} – ${fmt(pr.raw.hi)}` : ''}</span></div><div>`;  // two fixed lines: the box never changes its height
   const wd = items.find(i => i.dataset.kind === 'wind'), tp = items.find(i => i.dataset.kind === 'temp');
   if (wd) h += `<span>wind ${Math.round(wd.raw.y).toLocaleString('en-GB')} MW</span>`;
   if (tp) h += `<span>${tp.raw.y.toFixed(1)} °C</span>`;
   if (showWx()) { const w = WX.summarize(WX.between(D.wx, t / 1000, end / 1000), bucket >= 86400); if (w) h += `<span>${WX.describe(w)} · ${Math.round(w.ms)} m/s</span>`; }
-  el.innerHTML = h;
+  el.innerHTML = h + '</div>';
 }
 
 // a cell or day coloured by how far it is past a limit (the heatmap and the calendar)
@@ -886,6 +888,11 @@ const weatherRow = {
   },
 };
 
+function freeCanvas() {  // a chart still attached to the canvas (a build() that overlapped another one) would stop the next one: "Canvas is already in use"
+  chart?.destroy(); chart = null;
+  if (typeof Chart !== 'undefined') Chart.getChart($('#chart'))?.destroy();
+}
+
 function build() {
   if (!D) return;
   markColorBtn();
@@ -908,7 +915,7 @@ function build() {
     return status();
   }
   if (stat && typeof Chart !== 'undefined') {  // E typical day, G price vs wind: charts of the period without a time axis
-    chart?.destroy();
+    freeCanvas();
     renderCards(); renderBreakdown();
     chart = Views.makeChart(st, $('#chart'));
     $('#legend').textContent = Views.legend(st);
@@ -925,7 +932,7 @@ function build() {
     return status();
   }
   if (typeof Chart === 'undefined') { renderCards(); status(); return fatal('The chart library could not be loaded. Check the internet connection and reload.'); }
-  chart?.destroy();
+  freeCanvas();
   renderCards(); renderBreakdown();
   Chart.Interaction.modes.step ||= stepMode;
   const grid = { color: css('--grid') }, ticks = { color: css('--muted') }, small = innerWidth < 600;
@@ -953,7 +960,7 @@ function build() {
           title: { display: !small, text: 'wind MW', color: ticks.color } }
           : { display: tab !== 'compare' && (cons || windOn), position: 'right', min: cons ? undefined : 0, grid: { display: false }, ticks,
             title: { display: !small, text: cons ? 'c/kWh' : 'MW', color: ticks.color } },
-        y2: { display: showTemp(), position: 'right', grid: { display: false }, ticks: { color: TEMP.warm, callback: v => +v.toFixed(1) + '°' },
+        y2: { display: showTemp(), position: 'right', grid: { display: false }, ticks: { color: TEMP.warm, callback: v => v < tempLo - 1e-9 ? '' : +v.toFixed(1) + '°' },  // no labels in the wind panel
           title: { display: !small, text: '°C', color: TEMP.warm } },
       },
       plugins: {
@@ -1060,7 +1067,8 @@ function update() {
   const temps = chart.data.datasets.find(d => d.kind === 'temp')?.data.filter(p => p.x >= view.min - 36e5 && p.x <= view.max).map(p => p.y);
   if (temps?.length) {
     const lo = Math.floor(Math.min(...temps) - 1), hi = Math.ceil(Math.max(...temps) + 1);
-    Object.assign(chart.options.scales.y2, { min: chart.options.scales.y1.stack ? hi - (hi - lo) * 4 / 3 : lo, max: hi });  // keep the temperature above the wind panel
+    tempLo = lo;  // the scale is stretched down so the curve stays above the wind panel, but nothing of it (labels, zero line) is drawn below the price panel
+    Object.assign(chart.options.scales.y2, { min: chart.options.scales.y1.stack ? hi - (hi - lo) * 4 / 3 : lo, max: hi });
   }
   chart.update('none');
   syncScroll(); info(); readout();
@@ -1185,7 +1193,8 @@ function breakdownHtml(t, isNow) {
     <p class="bd-total"><b>${fmt(p.total)}</b> <small>c/kWh incl. VAT</small></p>
     <div class="stack" aria-hidden="true">${parts.filter(x => x[1] > 0).map(x => `<i class="${x[2]}" style="flex:${(x[1] / pos).toFixed(4)}"></i>`).join('')}</div>
     <table>${parts.map(([l, v, c]) => `<tr><td><i class="dotk ${c}"></i>${l}</td><td>${fmt(v)}</td></tr>`).join('')}` +
-    `<tr class="sum"><td>Total incl. VAT</td><td>${fmt(p.total)}</td></tr><tr class="muted"><td>Total excl. VAT</td><td>${fmt(exT)}</td></tr></table>`;
+    `<tr class="sum"><td>Total incl. VAT</td><td>${fmt(p.total)}</td></tr><tr class="muted"><td>Total excl. VAT</td><td>${fmt(exT)}</td></tr>` +
+    `<tr class="muted trm"><td>Transmission cost (transfer + tax)</td><td>${fmt(p.transmission)}</td></tr></table>`;
 }
 function renderBreakdown() {  // the picked chart point (default: now)
   if (!D) return;
