@@ -1,16 +1,28 @@
 // Price calculation and alarm messages shared by app.js and local.js. Mirrors app/main.py.
 // spot: c/kWh excl. VAT. Fee settings are c/kWh incl. VAT, monthly fees in EUR.
 
+// The clock hour (0-23) in Finland, whatever the time zone of the browser: the night rate and the server (app/main.py) use Finnish time.
+const HOUR_FMT = new Intl.DateTimeFormat('en-GB', { hour: 'numeric', hourCycle: 'h23', timeZone: 'Europe/Helsinki' });
+const HOUR_CACHE = new Map();
+function finHour(ts) {
+  const k = Math.floor(ts / 3600);
+  let h = HOUR_CACHE.get(k);
+  if (h === undefined) { h = +HOUR_FMT.format(k * 3600e3); if (HOUR_CACHE.size > 20000) HOUR_CACHE.clear(); HOUR_CACHE.set(k, h); }
+  return h;
+}
+
 // All parts of the price of one slot, c/kWh incl. VAT (spotEx excl. VAT).
+// transmission = transfer fee (day or night) + electricity tax, the part of the price that does not depend on the market.
 function priceParts(s, ts, spot) {
-  const k = 1 + s.vat / 100, h = new Date(ts * 1000).getHours(), ns = s.night_start, ne = s.night_end;
+  const k = 1 + s.vat / 100, h = finHour(ts), ns = s.night_start, ne = s.night_end;
   const night = ns > ne ? (h >= ns || h < ne) : (ns <= h && h < ne);
   const per = s.spread_monthly && s.monthly_kwh > 0 ? 100 / s.monthly_kwh : 0;
   const spotIn = spot > 0 ? spot * k : spot;
   const p = { spotEx: spot, vatOnSpot: spotIn - spot, margin: s.margin, other: s.other, night,
     transferFee: night ? s.transfer_night : s.transfer_day, tax: s.tax,
     monthly: (s.monthly_provider + s.monthly_transfer) * per, k };
-  p.transfer = p.transferFee + p.tax + s.monthly_transfer * per;
+  p.transmission = p.transferFee + p.tax;
+  p.transfer = p.transmission + s.monthly_transfer * per;
   p.total = spotIn + p.margin + p.other + p.transferFee + p.tax + p.monthly;
   return p;
 }
