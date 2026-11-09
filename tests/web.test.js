@@ -27,6 +27,11 @@ test('day / night rate uses Finnish time whatever the browser time zone is', () 
   assert.strictEqual(priceParts(S, at('2026-11-10T12:00:00+02:00'), 1).night, false);
 });
 
+test('a missing or non-finite time does not throw (page error "The provided value is non-finite")', () => {
+  for (const t of [NaN, undefined, Infinity, null]) assert.doesNotThrow(() => priceParts(S, t, 1));
+  assert.ok(Number.isNaN(finHour(NaN)));
+});
+
 test('the same number comes out in every process time zone', () => {
   const { execFileSync } = require('node:child_process');
   const code = `const vm=require('vm'),fs=require('fs');const c=vm.createContext({Intl,Math,Date,Number,String,Map,Object,Array,Set});` +

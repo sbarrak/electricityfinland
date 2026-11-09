@@ -5,6 +5,7 @@
 const HOUR_FMT = new Intl.DateTimeFormat('en-GB', { hour: 'numeric', hourCycle: 'h23', timeZone: 'Europe/Helsinki' });
 const HOUR_CACHE = new Map();
 function finHour(ts) {
+  if (!Number.isFinite(ts)) return NaN;  // Intl.format() throws "The provided value is non-finite" for NaN: a row without a time must not break the page
   const k = Math.floor(ts / 3600);
   let h = HOUR_CACHE.get(k);
   if (h === undefined) { h = +HOUR_FMT.format(k * 3600e3); if (HOUR_CACHE.size > 20000) HOUR_CACHE.clear(); HOUR_CACHE.set(k, h); }
