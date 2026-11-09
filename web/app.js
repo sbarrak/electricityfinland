@@ -828,8 +828,10 @@ const showTemp = () => tempOn && tab === 'prices' && D?.wx?.length > 0;
 let PAL = {}, TEMP = {}, wxCache = null;
 function tempColor(ctx) {  // red above 0 °C, blue below, switching exactly at the zero line
   const c = ctx.chart, a = c.chartArea, y = c.scales.y2;
-  if (!a || !y) return TEMP.warm;
-  const f = Math.max(0, Math.min(1, (y.getPixelForValue(0) - a.top) / (a.bottom - a.top))), key = `${a.top}|${a.bottom}|${f}`;
+  if (!a || !y || !Number.isFinite(a.top + a.bottom)) return TEMP.warm;
+  let f = (y.getPixelForValue(0) - a.top) / (a.bottom - a.top);
+  f = Number.isFinite(f) ? Math.max(0, Math.min(1, f)) : 1;  // before the scale has a range the position is NaN: addColorStop(NaN) throws "The provided value is non-finite" (Safari)
+  const key = `${a.top}|${a.bottom}|${f}`;
   if (TEMP.key !== key) {
     const gr = c.ctx.createLinearGradient(0, a.top, 0, a.bottom);
     gr.addColorStop(0, TEMP.warm); gr.addColorStop(f, TEMP.warm); gr.addColorStop(f, TEMP.cold); gr.addColorStop(1, TEMP.cold);

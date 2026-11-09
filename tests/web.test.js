@@ -68,3 +68,20 @@ test('browser-only mode sends nothing without WhatsApp / email set up', () => {
   const l = web('local.js');
   assert.match(l, /if \(canSend\(s\)\) for \(const due of dueMessages\(s\)\)/); assert.match(l, /skipped: no CallMeBot API key/);
 });
+
+test('temperature gradient never gets a NaN colour stop (Safari: "The provided value is non-finite")', () => {
+  const app = web('app.js');
+  assert.match(app, /f = Number\.isFinite\(f\) \? Math\.max\(0, Math\.min\(1, f\)\) : 1/);
+  // run tempColor with a scale that has no range yet
+  const stops = [], ctx2 = vm.createContext({ Math, Number, TEMP: { warm: 'r', cold: 'b' } });
+  const fn = app.slice(app.indexOf('function tempColor'), app.indexOf('const WX_STEPS'));
+  vm.runInContext(fn + ';this.tempColor = tempColor', ctx2);
+  const chart = { chartArea: { top: 10, bottom: 100 }, scales: { y2: { getPixelForValue: () => NaN } },
+    ctx: { createLinearGradient: () => ({ addColorStop: (o) => { if (!Number.isFinite(o)) throw new TypeError('The provided value is non-finite'); stops.push(o); } }) } };
+  assert.doesNotThrow(() => ctx2.tempColor({ chart }));
+});
+
+test('changed page files have a new cache-busting version', () => {
+  const h = web('index.html');
+  assert.match(h, /costs\.js\?v=14/); assert.match(h, /app\.js\?v=28/); assert.match(h, /home\.js\?v=2/); assert.match(h, /style\.css\?v=20/);
+});
