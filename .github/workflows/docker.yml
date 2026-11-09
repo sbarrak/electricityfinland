@@ -1,0 +1,31 @@
+# Publishes the app and setup images to GitHub Container Registry on every push to main,
+# so Portainer can pull ready-made images (no git needed on the Docker host).
+name: Publish images
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: read
+  packages: write
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - {name: electricityfinland-app, context: app, file: app/Dockerfile}
+          - {name: electricityfinland-setup, context: ., file: setup/Dockerfile}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/build-push-action@v6
+        with:
+          context: ${{ matrix.context }}
+          file: ${{ matrix.file }}
+          push: true
+          tags: ghcr.io/sbarrak/${{ matrix.name }}:latest

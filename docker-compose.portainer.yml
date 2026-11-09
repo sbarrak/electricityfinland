@@ -1,4 +1,5 @@
-# For Portainer (or any Docker host without a clone): everything is pulled from GitHub, nothing needs to be cloned.
+# For Portainer (or any Docker host without a clone or git): ready-made images are pulled from GitHub Container Registry
+# (built by .github/workflows/docker.yml on every push to main). Nothing is built on the host.
 # All persistent data lives in DATA_DIR on the NAS and survives updates:
 #   $DATA_DIR/data    user data (SQLite)
 #   $DATA_DIR/web     web files (refreshed from GitHub on every start)
@@ -6,15 +7,15 @@
 # Set DATA_DIR (an absolute folder on the host) and optionally WEB_PORT in the stack's environment variables.
 services:
   setup:
-    build:
-      context: https://github.com/sbarrak/electricityfinland.git#main
-      dockerfile: setup/Dockerfile
+    image: ghcr.io/sbarrak/electricityfinland-setup:latest
+    pull_policy: always
     restart: "no"
     volumes:
       - ${DATA_DIR:?set DATA_DIR in the stack environment variables}/web:/target/web
       - ${DATA_DIR:?set DATA_DIR in the stack environment variables}/nginx:/target/nginx
   app:
-    build: https://github.com/sbarrak/electricityfinland.git#main:app
+    image: ghcr.io/sbarrak/electricityfinland-app:latest
+    pull_policy: always
     restart: unless-stopped
     env_file:
       - stack.env
