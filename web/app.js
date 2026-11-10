@@ -10,7 +10,12 @@ addEventListener('error', e => {
   if (leaving || (!e.filename && !e.lineno && /^script error\.?$/i.test(e.message || ''))) return;
   fatal(`${e.message} (${(e.filename || '').split('/').pop()}:${e.lineno}). Try reloading the page.`);
 });
-addEventListener('unhandledrejection', e => { if (!leaving) fatal(String(e.reason?.message || e.reason)); });
+// A rejection whose stack has frames but none from our own scripts comes from a browser extension / content blocker
+// injected into the page (e.g. "undefined is not an object (evaluating 'e.useCache')" on iOS Safari): not ours, ignore.
+// An empty stack (a failed fetch: "Load failed") is still shown.
+const OWN_JS = /\b(app|costs|weather|local|grid|consumption|views|home)\.js\b/;
+const foreign = r => { const st = typeof r?.stack === 'string' ? r.stack.trim() : ''; return st !== '' && !OWN_JS.test(st); };
+addEventListener('unhandledrejection', e => { if (!leaving && !foreign(e.reason)) fatal(String(e.reason?.message || e.reason)); });
 const $$ = (s, el = document) => [...el.querySelectorAll(s)];
 const store = (k, v) => { try { return v === undefined ? localStorage.getItem(k) : localStorage.setItem(k, v); } catch { return null; } };
 const LOCAL = window.LOCAL;  // set by local.js when opened as a file

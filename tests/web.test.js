@@ -83,5 +83,5 @@ test('temperature gradient never gets a NaN colour stop (Safari: "The provided v
 
 test('changed page files have a new cache-busting version', () => {
   const h = web('index.html');
-  assert.match(h, /costs\.js\?v=14/); assert.match(h, /app\.js\?v=28/); assert.match(h, /home\.js\?v=2/); assert.match(h, /style\.css\?v=20/);
+  assert.match(h, /costs\.js\?v=14/); assert.match(h, /app\.js\?v=29/); assert.match(h, /home\.js\?v=2/); assert.match(h, /style\.css\?v=20/);
 });
