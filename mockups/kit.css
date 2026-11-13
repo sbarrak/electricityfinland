@@ -311,3 +311,6 @@ button.row,label.row{cursor:pointer}
 .review .rv-home{font-weight:650;color:#fff;padding-left:0}
 .review .rv-note{margin-left:auto;color:#888}
 @media (max-width:640px){.review .rv-note{display:none}}
+
+.credit{margin:0;padding:16px 16px calc(88px + env(safe-area-inset-bottom));text-align:center;color:var(--muted,#6b7280);font-size:.8rem}
+.credit a{color:inherit}
