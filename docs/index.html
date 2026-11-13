@@ -1,0 +1,124 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Electricity Finland – self-hosted Finnish spot price monitor with alarms</title>
+<meta name="description" content="Free, open-source, self-hosted monitor for Finnish electricity spot prices (Nord Pool, 15-minute), a week-ahead price estimate, wind power and weather, with WhatsApp and email alarms. Runs in Docker on a NAS.">
+<meta name="keywords" content="Finland electricity price, pörssisähkö, sähkön hinta, Nord Pool, spot price, 15-minute price, wind power forecast, Fingrid, Docker, Synology, Portainer, self-hosted, home automation, price alarm">
+<meta name="author" content="sbarrak">
+<meta name="robots" content="index, follow">
+<meta name="theme-color" content="#0a1120">
+<link rel="canonical" href="https://sbarrak.github.io/electricityfinland/">
+<meta property="og:type" content="website">
+<meta property="og:title" content="Electricity Finland – Finnish spot price monitor">
+<meta property="og:description" content="Nord Pool 15-min prices, week-ahead estimate, wind and weather, with WhatsApp and email alarms. Open source, self-hosted.">
+<meta property="og:url" content="https://sbarrak.github.io/electricityfinland/">
+<meta property="og:image" content="https://sbarrak.github.io/electricityfinland/img/c-signal-desktop.jpg">
+<meta property="og:locale" content="en_FI">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="Electricity Finland – Finnish spot price monitor">
+<meta name="twitter:description" content="Nord Pool 15-min prices, estimate, wind, weather and alarms. Self-hosted.">
+<meta name="twitter:image" content="https://sbarrak.github.io/electricityfinland/img/c-signal-desktop.jpg">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E⚡%3C/text%3E%3C/svg%3E">
+<script type="application/ld+json">
+{"@context":"https://schema.org","@type":"SoftwareApplication","name":"Electricity Finland",
+"applicationCategory":"UtilitiesApplication","operatingSystem":"Docker, Linux, Windows, macOS, any modern browser",
+"description":"Self-hosted monitor for Finnish electricity spot prices (Nord Pool day-ahead, 15-minute) with price estimates, wind power forecasts, weather and WhatsApp / email alarms.",
+"url":"https://sbarrak.github.io/electricityfinland/","downloadUrl":"https://github.com/sbarrak/electricityfinland",
+"codeRepository":"https://github.com/sbarrak/electricityfinland","license":"https://www.gnu.org/licenses/gpl-3.0.html",
+"offers":{"@type":"Offer","price":"0","priceCurrency":"EUR"},"inLanguage":"en","keywords":"Finland, electricity, spot price, Nord Pool, Docker"}
+</script>
+<style>
+:root{--bg:#f6f8fb;--fg:#0f1a2b;--muted:#51607a;--card:#fff;--line:#dde3ee;--accent:#2563eb;--accent-fg:#fff;--code:#eef2f8}
+@media (prefers-color-scheme:dark){:root:not([data-theme=light]){--bg:#0a1120;--fg:#e8eefb;--muted:#9aa8c4;--card:#121b30;--line:#22304f;--accent:#5b9bff;--accent-fg:#06101f;--code:#0d1629}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font:16px/1.6 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+.wrap{max-width:1000px;margin:0 auto;padding:0 16px}
+header.hero{padding:56px 0 32px;text-align:center}
+h1{font-size:clamp(2rem,6vw,3.2rem);line-height:1.1;margin:0 0 12px}
+.lead{font-size:1.15rem;color:var(--muted);max-width:42em;margin:0 auto 24px}
+.btns{display:flex;gap:12px;justify-content:center;flex-wrap:wrap}
+.btn{display:inline-block;padding:10px 20px;border-radius:10px;border:1px solid var(--line);color:var(--fg);text-decoration:none;font-weight:600;background:var(--card)}
+.btn.primary{background:var(--accent);color:var(--accent-fg);border-color:var(--accent)}
+.shot{margin:32px auto 0;max-width:100%;border-radius:14px;border:1px solid var(--line);box-shadow:0 10px 40px rgba(0,0,0,.18)}
+section{padding:32px 0}
+h2{font-size:1.6rem;margin:0 0 16px}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:16px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:18px}
+.card h3{margin:0 0 6px;font-size:1.05rem}
+.card p{margin:0;color:var(--muted);font-size:.95rem}
+.shots{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:16px}
+.shots figure{margin:0}
+.shots img{width:100%;height:auto;border-radius:10px;border:1px solid var(--line)}
+figcaption{font-size:.9rem;color:var(--muted);margin-top:6px}
+pre{background:var(--code);border:1px solid var(--line);border-radius:10px;padding:14px;overflow-x:auto;font-size:.9rem}
+table{width:100%;border-collapse:collapse;background:var(--card);border:1px solid var(--line);border-radius:12px;overflow:hidden;font-size:.95rem}
+th,td{padding:10px 12px;border-bottom:1px solid var(--line);text-align:left;vertical-align:top}
+a{color:var(--accent)}
+footer{padding:32px 0 48px;color:var(--muted);font-size:.9rem;text-align:center}
+.tags{display:flex;flex-wrap:wrap;gap:8px;justify-content:center;margin-top:16px}
+.tags span{font-size:.8rem;padding:3px 10px;border-radius:99px;border:1px solid var(--line);color:var(--muted)}
+@media(max-width:600px){th,td{padding:8px}}
+</style>
+</head>
+<body>
+<header class="hero"><div class="wrap">
+  <h1>⚡ Electricity Finland</h1>
+  <p class="lead">Self-hosted monitor for Finnish electricity spot prices: Nord Pool day-ahead in 15-minute steps, a price estimate for the coming week, wind power and local weather, with WhatsApp and email alarms.</p>
+  <div class="btns">
+    <a class="btn primary" href="https://github.com/sbarrak/electricityfinland#install-synology--any-docker-host">Install with Docker</a>
+    <a class="btn" href="https://github.com/sbarrak/electricityfinland">View on GitHub</a>
+    <a class="btn" href="https://github.com/sbarrak/electricityfinland/releases">Releases</a>
+  </div>
+  <img class="shot" src="img/c-signal-desktop.jpg" width="1000" alt="Signal layout: today's prices as a 24-hour dial with the cheapest hours and the next 48 hours" loading="eager">
+  <div class="tags" aria-label="Topics"><span>Finland</span><span>Nord Pool</span><span>pörssisähkö</span><span>spot price</span><span>Docker</span><span>Synology</span><span>GPL-3.0</span></div>
+</div></header>
+
+<main class="wrap">
+<section>
+  <h2>What it does</h2>
+  <div class="grid">
+    <div class="card"><h3>15-minute spot prices</h3><p>Published Nord Pool prices for today and tomorrow, with spot or total cost (margin, transfer, tax, VAT, monthly fees).</p></div>
+    <div class="card"><h3>Week-ahead estimate</h3><p>A machine-learning estimate for the days not yet published, compared afterwards with the real price.</p></div>
+    <div class="card"><h3>Wind and weather</h3><p>Wind power forecast and production (Fingrid Open Data) and Open-Meteo weather for your place, next to the prices.</p></div>
+    <div class="card"><h3>Alarms</h3><p>High and low price limits, WhatsApp (CallMeBot) and email, with a schedule and recipients per user.</p></div>
+    <div class="card"><h3>Cheapest hours</h3><p>Cheapest 1, 3 and 6 hour windows, plus “What would it cost?” for sauna, dishwasher or car charging.</p></div>
+    <div class="card"><h3>Your own consumption</h3><p>Import Oomi or Fingrid Datahub files and see what you paid against the plain average price.</p></div>
+  </div>
+</section>
+
+<section>
+  <h2>Three layouts</h2>
+  <div class="shots">
+    <figure><img src="img/c-signal-desktop.jpg" loading="lazy" width="600" alt="Signal layout on a computer"><figcaption><b>Signal</b>: a 24-hour dial with the price now in its centre.</figcaption></figure>
+    <figure><img src="img/b-studio-desktop.jpg" loading="lazy" width="600" alt="Studio layout on a computer"><figcaption><b>Studio</b>: sidebar, key numbers and chart with price breakdown.</figcaption></figure>
+    <figure><img src="img/a-calm-desktop.jpg" loading="lazy" width="600" alt="Calm layout on a computer"><figcaption><b>Calm</b>: the price now in large type and the day's bars.</figcaption></figure>
+    <figure><img src="img/c-signal-phone.jpg" loading="lazy" width="300" alt="Signal layout on a phone"><figcaption>Works on a phone with a tab bar. Screenshots use example data.</figcaption></figure>
+  </div>
+</section>
+
+<section>
+  <h2>Run it your way</h2>
+  <table>
+    <tr><th></th><th>Docker (NAS)</th><th>Local server</th><th>Standalone</th></tr>
+    <tr><td>Start</td><td><code>docker compose up -d</code></td><td><code>./run.sh</code> / <code>run.bat</code></td><td>open <code>ElectricityFinland.html</code></td></tr>
+    <tr><td>Needs</td><td>Docker</td><td>Python 3.10+</td><td>a browser</td></tr>
+    <tr><td>Alarms</td><td>24/7</td><td>while running</td><td>while the page is open</td></tr>
+  </table>
+  <pre><code>git clone https://github.com/sbarrak/electricityfinland.git &amp;&amp; cd electricityfinland
+cp .env.example stack.env   # optional: FINGRID_API_KEY
+docker compose up -d --build
+# open http://&lt;nas-ip&gt;:8088  (first login: admin / admin, then choose your own)</code></pre>
+  <p>Ready-made images for Portainer are published to GitHub Container Registry: <code>ghcr.io/sbarrak/electricityfinland-app</code> and <code>ghcr.io/sbarrak/electricityfinland-setup</code>.</p>
+</section>
+
+<section>
+  <h2>Data sources (all free)</h2>
+  <p>Nord Pool day-ahead prices, Open-Meteo weather, and optionally <a href="https://data.fingrid.fi">Fingrid Open Data</a> for the official wind forecast. No account with this project is needed; your settings and consumption stay on your own server.</p>
+</section>
+</main>
+
+<footer><div class="wrap">Open source under <a href="https://github.com/sbarrak/electricityfinland/blob/main/LICENSE">GPL-3.0</a> · <a href="https://github.com/sbarrak/electricityfinland/issues">Report an issue</a> · Not affiliated with Nord Pool, Fingrid or any electricity company.</div></footer>
+</body>
+</html>

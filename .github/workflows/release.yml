@@ -1,0 +1,46 @@
+# Push a tag like v1.0.0 to publish a GitHub Release and version-tagged images.
+name: Release
+on:
+  push:
+    tags: ['v*.*.*']
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version tag to create from the selected branch, e.g. v1.0.0'
+        required: true
+env:
+  VERSION: ${{ github.event.inputs.version || github.ref_name }}
+permissions:
+  contents: write
+  packages: write
+jobs:
+  images:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - {name: electricityfinland-app, context: app, file: app/Dockerfile}
+          - {name: electricityfinland-setup, context: ., file: setup/Dockerfile}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/build-push-action@v6
+        with:
+          context: ${{ matrix.context }}
+          file: ${{ matrix.file }}
+          push: true
+          tags: |
+            ghcr.io/sbarrak/${{ matrix.name }}:${{ env.VERSION }}
+            ghcr.io/sbarrak/${{ matrix.name }}:latest
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Create release from tag
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release create "$VERSION" --target "${{ github.sha }}" --title "$VERSION" --notes-file CHANGELOG.md
