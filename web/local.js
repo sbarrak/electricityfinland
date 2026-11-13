@@ -258,7 +258,7 @@
     const missing = !(lastPrice() >= midnight(n.getHours() * 60 + n.getMinutes() >= FETCH_AT ? 2 : 1) / 1000 - 3600);
     let changed = false;
     if (missing && t - last.p > 300) { last.p = t; await track('prices', fetchPrices); changed = true; }
-    if (t - last.f > 1800) { last.f = t; await track('forecast', fetchForecasts); changed = true; }  // estimates: every 30 min
+    if (t - last.f > 3600) { last.f = t; await track('forecast', fetchForecasts); changed = true; }  // estimates: every hour
     if (t - last.w > 3600) { last.w = t; await track('fingrid', fetchFingrid); await track('weather', fetchWeather); changed = true; }
     if (t - last.h > 86400) { last.h = t; await track('history', () => backfill()); await track('weather history', () => backfillWeather()); changed = true; }
     if (changed) { persist(); if (!document.querySelector('#main.hidden')) window.load?.(); }

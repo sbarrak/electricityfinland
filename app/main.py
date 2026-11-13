@@ -698,8 +698,8 @@ async def worker():
         while True:
             now = time.time()
             # prices: at 14:20, then every 5 min until tomorrow is stored, then not again until the next day at 14:20;
-            # estimates (and wind) every 30 min
-            for k, every, fn in (("p", 300 if prices_missing() else float("inf"), fetch_prices), ("f", 1800, fetch_forecasts),
+            # estimates (and wind) every hour
+            for k, every, fn in (("p", 300 if prices_missing() else float("inf"), fetch_prices), ("f", 3600, fetch_forecasts),
                                  ("h", 86400, backfill), ("w", 3600, update_weather),
                                  ("wh", 86400, lambda c: update_weather(c, backfill=True))):
                 if now - last[k] > every:
