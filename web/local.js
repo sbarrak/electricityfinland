@@ -11,7 +11,7 @@
   const DEFAULTS = {
     vat: 25.5, margin: 0, transfer_day: 0, transfer_night: 0, night_start: 22, night_end: 7, tax: 2.827, other: 0,
     monthly_provider: 0, monthly_transfer: 0, monthly_kwh: 0, spread_monthly: false,
-    alarm_basis: 'total', alarm_vat: true, high_on: true, high: 20, low_on: true, low: 2, summary_on: true, extra_time_1: '', extra_time_2: '', extra_time_3: '', ...MSG_DEFAULTS,
+    alarm_basis: 'total', alarm_vat: true, high_on: true, high: 20, low_on: true, low: 2, summary_on: true, extra_time_1: '14:25', extra_time_2: '', extra_time_3: '', sched_v2: false, ...MSG_DEFAULTS,
     wa_on: true, email_on: true, recipients: [], alerts_v2: false, wx_place: 'Helsinki', wx_lat: 60.1699, wx_lon: 24.9384, price_color: '', ui_layout: 'signal',
     ejs_service: '', ejs_template: '', ejs_key: '', fingrid_key: '',
   };
@@ -27,6 +27,8 @@
   const locOf = s => `${(+s.wx_lat).toFixed(3)},${(+s.wx_lon).toFixed(3)}`;
   const clean = r => ({ name: String(r.name || '').slice(0, 60), phone: String(r.phone || '').trim(), apikey: String(r.apikey || '').trim(),
     email: String(r.email || '').trim(), wa: !!r.wa, mail: !!r.mail });
+  // Tomorrow's prices are released at 14:15 Finnish time: they are fetched from 14:20 on, and 14:25 is the standard send time.
+  const TIMES = ['extra_time_1', 'extra_time_2', 'extra_time_3'], DEFAULT_SEND = '14:25', FETCH_AT = 14 * 60 + 20;
   function settings() {
     const saved = get('settings', {});
     for (const [k, olds] of Object.entries(OLD_MSGS)) if (olds.includes(saved[k])) delete saved[k];  // an earlier default text: use the new default
@@ -34,6 +36,11 @@
     if (!s.alerts_v2) {  // one time: the limits are checked, and WhatsApp + Email are on when both were off (nothing would be sent)
       Object.assign(s, { high_on: true, low_on: true, alerts_v2: true });
       if (!s.wa_on && !s.email_on) s.wa_on = s.email_on = true;
+    }
+    if (!s.sched_v2) {  // one time: settings saved while 2 pm was a built-in send time get 14:25 in the first free send time
+      s.sched_v2 = true;
+      const free = TIMES.find(k => !s[k]);
+      if (free && !TIMES.some(k => s[k] === DEFAULT_SEND)) s[free] = DEFAULT_SEND;
     }
     if (!s.recipients.length && (s.wa_phone || s.email_to))  // migrate single-recipient settings
       s.recipients = [clean({ name: 'Me', phone: s.wa_phone, apikey: s.wa_apikey, email: s.email_to, wa: true, mail: true })];
@@ -183,7 +190,7 @@
     return out;
   }
 
-  // ---- when messages are sent. Mirrors due_messages() in app/main.py: the daily 14:00 message plus up to 3 extra times, each with
+  // ---- when messages are sent. Mirrors due_messages() in app/main.py: up to 3 send times (14:25 as standard), each with
   // the prices from that time to the same time tomorrow, that hour included; hours not published yet are forecast estimates.
   function periodMessage(s, a, b, list = rows('prices', a - 3600), test = false) {  // mirrors period_message() in app/main.py
     const pub = list.length ? Math.min(b, list.at(-1)[0] + 900) : a;
@@ -195,12 +202,12 @@
     }
     return composeMessage(s, list, a, pub, { test, note, est, estEnd: b });
   }
-  const SEND_HOUR = 14, DAILY_GRACE = 10 * 3600, EXTRA_GRACE = 3 * 3600, PARTIAL_AFTER = 90 * 60, RETRY_AFTER = 300, MAX_TRIES = 4;
+  const GRACE = 3 * 3600, PARTIAL_AFTER = 90 * 60, RETRY_AFTER = 300, MAX_TRIES = 4;
   const TIME_RE = /^([01]\d|2[0-3]):[0-5]\d$/;
   const isoDay = d => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
   function scheduleTimes(s) {
-    const out = [['daily', '14:00']], seen = new Set(['14:00']);
-    ['extra_time_1', 'extra_time_2', 'extra_time_3'].forEach((k, i) => {
+    const out = [], seen = new Set();
+    TIMES.forEach((k, i) => {
       const t = String(s[k] || '').trim();
       if (TIME_RE.test(t) && !seen.has(t)) { seen.add(t); out.push(['extra:' + i, t]); }
     });
@@ -210,15 +217,15 @@
     const n = new Date(), out = [];
     for (const [slot, t] of scheduleTimes(s)) for (const back of [0, 1]) {  // yesterday too: the grace period may reach past midnight
       const start = new Date(n.getFullYear(), n.getMonth(), n.getDate() - back, +t.slice(0, 2), +t.slice(3)), late = (n - start) / 1000;
-      const key = slot === 'daily' ? isoDay(start) : `${isoDay(start)} ${t}`;
-      const legacy = slot === 'daily' ? get('daily_sent') === start.toDateString() : get('sent_extra_time_' + (+slot.slice(6) + 1)) === `${start.toDateString()} ${t}`;  // sent by the previous version
-      if (late < 0 || late >= (slot === 'daily' ? DAILY_GRACE : EXTRA_GRACE) || get('sent_' + slot) === key || legacy) continue;
+      const key = `${isoDay(start)} ${t}`;
+      const legacy = get('sent_extra_time_' + (+slot.slice(6) + 1)) === `${start.toDateString()} ${t}`;  // sent by the previous version
+      if (late < 0 || late >= GRACE || get('sent_' + slot) === key || legacy) continue;
       const tr = get('tries_' + slot, {});
       if (tr.key === key && (tr.n >= MAX_TRIES || now() - tr.at < RETRY_AFTER)) continue;
       const a = start / 1000, y = start.getFullYear(), mo = start.getMonth(), d = start.getDate();
       const b = new Date(y, mo, d + 1, start.getHours() + 1, start.getMinutes()) / 1000;  // until the same time tomorrow, that hour included
-      // published by now: today until midnight; from 14:00 also tomorrow (Nord Pool publishes it around 13:45)
-      const need = Math.min(b, new Date(y, mo, d + (start.getHours() < SEND_HOUR ? 1 : 2)) / 1000);
+      // published by now: today until midnight; from 14:20 also tomorrow (released at 14:15, fetched at 14:20)
+      const need = Math.min(b, new Date(y, mo, d + (start.getHours() * 60 + start.getMinutes() < FETCH_AT ? 1 : 2)) / 1000);
       const list = rows('prices', a - 3600);
       if (!list.length || list.at(-1)[0] < need - 3600) {  // what should be published is not yet: wait for it
         if (late < PARTIAL_AFTER || !list.length || list.at(-1)[0] < a) continue;
@@ -237,7 +244,7 @@
   const scheduleInfo = s => ({ times: scheduleTimes(s).map(x => x[1]), last: get('last_send', null),
     wa: s.recipients.filter(r => r.phone && r.apikey).length, email: s.ejs_service && s.ejs_template && s.ejs_key ? s.recipients.filter(r => r.email).length : 0 });
 
-  const last = { p: 0, f: 0, h: 0 };
+  const last = { p: 0, f: 0, w: 0, h: 0 };
   let sending = false;
   async function refresh(fingrid = true) {
     const out = { prices: await track('prices', fetchPrices), forecast: await track('forecast', fetchForecasts), weather: await track('weather', fetchWeather) };
@@ -246,10 +253,13 @@
     return out;
   }
   async function tick() {
-    const t = now(), waiting = lastPrice() < midnight(2) / 1000 - 3600 && new Date().getHours() >= 13;
+    const t = now(), n = new Date();
+    // prices: at 14:20, then every 5 min until tomorrow is stored, then not again until the next day at 14:20 (published prices do not change)
+    const missing = !(lastPrice() >= midnight(n.getHours() * 60 + n.getMinutes() >= FETCH_AT ? 2 : 1) / 1000 - 3600);
     let changed = false;
-    if (t - last.p > (waiting ? 600 : 3600)) { last.p = t; await track('prices', fetchPrices); changed = true; }
-    if (t - last.f > 3600) { last.f = t; await track('forecast', fetchForecasts); await track('fingrid', fetchFingrid); await track('weather', fetchWeather); changed = true; }
+    if (missing && t - last.p > 300) { last.p = t; await track('prices', fetchPrices); changed = true; }
+    if (t - last.f > 1800) { last.f = t; await track('forecast', fetchForecasts); changed = true; }  // estimates: every 30 min
+    if (t - last.w > 3600) { last.w = t; await track('fingrid', fetchFingrid); await track('weather', fetchWeather); changed = true; }
     if (t - last.h > 86400) { last.h = t; await track('history', () => backfill()); await track('weather history', () => backfillWeather()); changed = true; }
     if (changed) { persist(); if (!document.querySelector('#main.hidden')) window.load?.(); }
     if (sending) return;  // a slow send must not be started a second time by the next tick
@@ -309,7 +319,7 @@
           if (k === 'ui_layout' && !['signal', 'studio', 'calm'].includes(s[k])) throw new Error('invalid layout');
         }
         put('settings', Object.fromEntries(Object.entries(s).filter(([k]) => k in DEFAULTS)));
-        if (body.fingrid_key) last.f = 0;  // fetch with the new key on the next tick
+        if (body.fingrid_key) last.w = 0;  // fetch with the new key on the next tick
         return s;
       }
       if (p === 'consumption') {  // mirrors /api/consumption in app/main.py
@@ -326,7 +336,7 @@
         if (Array.isArray(body.only)) {
           s.recipients = s.recipients.filter((r, i) => body.only.includes(i));
           if (!s.recipients.length) throw new Error('select at least one recipient');
-        }  // example: daily message for the published prices from now on
+        }  // example: scheduled message for the published prices from now on
         const text = 'TEST MESSAGE\nNo published prices yet.';
         return notify(s, periodMessage(s, a, a + 90000, undefined, true) || { subject: '[TEST] Electricity prices', wa: text, text }, body.channel || 'all');
       }

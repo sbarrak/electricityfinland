@@ -155,12 +155,13 @@ $('#nuAdd').onclick = async () => {
   } catch (err) { $('#nuErr').textContent = err.message; }
 };
 
-// what is scheduled, who gets it, and how the last scheduled message went (shown under the extra send times)
+// what is scheduled, who gets it, and how the last scheduled message went (shown under the send times)
 function renderSchedule() {
   const sc = D?.schedule, el = $('#schedInfo');
   if (!sc || !el) return;
   const n = (c, w) => `${c} ${w} recipient${c === 1 ? '' : 's'}`, lines = [], warn = [];
-  lines.push(`Scheduled messages at <b>${sc.times.join(' · ')}</b> go to <b>every</b> recipient in the list: ` +
+  if (!sc.times.length) warn.push('No send time is set, so no scheduled message is sent.');
+  else lines.push(`Scheduled messages at <b>${sc.times.join(' · ')}</b> go to <b>every</b> recipient in the list: ` +
     `WhatsApp ${S.wa_on ? n(sc.wa, '') : 'is off'}, email ${S.email_on ? n(sc.email, '') : 'is off'}.`);
   if (!S.wa_on && !S.email_on) warn.push('The WhatsApp alerts and Email alerts switches above the chart are both off, so no message is sent.');
   if (S.wa_on && !sc.wa) warn.push('WhatsApp is on, but no recipient has both a phone number and a CallMeBot key.');
@@ -178,7 +179,7 @@ const dlg = $('#msgDialog');
 $('#phAlarm').textContent = TEMPLATE_FIELDS.alarm.map(f => `{${f}}`).join(' ');
 $('#phSummary').textContent = TEMPLATE_FIELDS.summary.map(f => `{${f}}`).join(' ');
 function sampleFields(k) {
-  if (k === 'msg_summary') return { from: 'Fri 10.10. 14:00', to: 'Sat 11.10. 14:00', avg: '8.40', min: '1.20', min_time: 'Sat 11.10. 03:00',
+  if (k === 'msg_summary') return { from: 'Fri 10.10. 14:25', to: 'Sat 11.10. 14:25', avg: '8.40', min: '1.20', min_time: 'Sat 11.10. 03:00',
     max: '21.70', max_time: 'Fri 10.10. 18:00', basis: alarmBasis(S), weekday: 'Fri', date: '10.10.' };
   const kind = k === 'msg_high' ? 'high' : 'low', t = Math.floor(Date.now() / 9e5) * 900 + 7200;
   return windowFields(S, kind, { start: t, end: t + 5400, ps: [[kind === 'high' ? S.high + 1.5 : S.low - 0.5, 5400]] });
@@ -1181,7 +1182,7 @@ const INFO = {
   now: 'Price of the current 15-minute slot: the spot price or your total cost (buttons above the chart), with or without VAT (checkbox).',
   transfer: 'Your network transfer fee for this hour (day or night rate) plus electricity tax, from the Costs settings. It does not depend on the market.',
   today: "Average of today's prices. The small numbers are today's lowest and highest price.",
-  tomorrow: "Average of tomorrow's prices, lowest and highest. Nord Pool publishes them around 14:00 Finnish time.",
+  tomorrow: "Average of tomorrow's prices, lowest and highest. The actual prices are released at 14:15 Finnish time and this site is updated around 14:20.",
   cheap: 'Start time of the cheapest 3-hour block in the already published prices from now on, and its average price. Good for laundry, dishwasher or car charging.',
   wind: 'Latest wind power production in Finland (or the forecast) in megawatts. More wind usually means cheaper electricity.',
 };

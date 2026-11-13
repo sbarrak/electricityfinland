@@ -41,7 +41,8 @@ DEFAULTS = {
     "night_start": 22, "night_end": 7, "tax": 2.827, "other": 0.0,
     "monthly_provider": 0.0, "monthly_transfer": 0.0, "monthly_kwh": 0.0, "spread_monthly": False,
     "alarm_basis": "total", "alarm_vat": True, "high_on": True, "high": 20.0, "low_on": True, "low": 2.0,
-    "summary_on": True, "extra_time_1": "", "extra_time_2": "", "extra_time_3": "",  # extra send times "HH:MM", empty = off
+    "summary_on": True, "extra_time_1": "14:25", "extra_time_2": "", "extra_time_3": "",  # send times "HH:MM", empty = off
+    "sched_v2": False,  # one-time: the former built-in 2 pm message became the removable 14:25 send time
     "wa_on": True, "email_on": True, "recipients": [], "alerts_v2": False,  # alerts_v2: one-time switch-on of limits/channels done
     "wx_place": "Helsinki", "wx_lat": 60.1699, "wx_lon": 24.9384,  # weather under the chart (a place in Finland)
     "price_color": "",  # colour of the published price line, "#rrggbb"; empty = the theme default (charcoal)
@@ -64,6 +65,8 @@ OLD_MSGS = {  # earlier default texts: a saved copy of one of them is replaced b
     "msg_summary": ("📅 Prices {from} – {to}: avg {avg}, min {min} at {min_time}, max {max} at {max_time} c/kWh ({basis})",),
 }
 EXTRA_TIMES = ("extra_time_1", "extra_time_2", "extra_time_3")
+# Tomorrow's prices are released at 14:15 Finnish time: they are fetched from 14:20 on, and 14:25 is the standard send time.
+FETCH_AT, DEFAULT_SEND = (14, 20), "14:25"
 TIME_RE = re.compile(r"([01]\d|2[0-3]):[0-5]\d")
 COLOR_RE = re.compile(r"#[0-9a-fA-F]{6}")
 LAYOUTS = ("signal", "studio", "calm")  # the page layouts a user can pick
@@ -145,6 +148,11 @@ def settings(uid):  # every user has their own settings (recipients, email serve
         s.update(high_on=True, low_on=True, alerts_v2=True)
         if not (s["wa_on"] or s["email_on"]):
             s.update(wa_on=True, email_on=True)
+    if not s["sched_v2"]:  # one time: settings saved while 2 pm was a built-in send time get 14:25 in the first free send time
+        s["sched_v2"] = True
+        free = [k for k in EXTRA_TIMES if not s[k]]
+        if free and DEFAULT_SEND not in (s[k] for k in EXTRA_TIMES):
+            s[free[0]] = DEFAULT_SEND
     for k in ("smtp_host", "smtp_port", "smtp_security"):  # an empty saved value means "use the default"
         s[k] = s[k] or DEFAULTS[k]
     if not s["recipients"] and (s.get("wa_phone") or s.get("email_to")):  # migrate single-recipient settings
@@ -470,9 +478,6 @@ def duration(sec):
     return f"{h} h {m} min" if h and m else f"{h} h" if h else f"{m} min"
 
 
-SEND_HOUR = 14  # Nord Pool publishes the next day around 13:45 Finnish time
-
-
 def daystamp(ts):
     d = datetime.fromtimestamp(ts, TZ)
     return f"{WEEKDAYS[d.weekday()]} {d:%d.%m.} {d:%H:%M}"
@@ -606,16 +611,14 @@ def render_html(sections):
 
 
 # ---------------------------------------------------------------- when messages are sent
-EXTRA_GRACE = 3 * 3600  # an extra time still sends up to 3 h late (waiting for the prices, or after a restart)
-DAILY_GRACE = 10 * 3600  # the 14:00 message: any time until midnight
+GRACE = 3 * 3600  # a send time still sends up to 3 h late (waiting for the prices, or after a restart)
 PARTIAL_AFTER = 90 * 60  # prices still not published this long after the send time: send what exists, with a note
 RETRY_AFTER, MAX_TRIES = 300, 4  # a message nobody received (mail server / CallMeBot down) is tried again every 5 min
 
 
 def schedule_times(s):
-    """[(slot, "HH:MM")]: the daily 14:00 message plus the valid, distinct extra times."""
-    daily = f"{SEND_HOUR}:00"
-    out, seen = [("daily", daily)], {daily}
+    """[(slot, "HH:MM")]: the valid, distinct send times of the user (none = no scheduled message)."""
+    out, seen = [], set()
     for i, k in enumerate(EXTRA_TIMES):
         t = str(s.get(k) or "").strip()
         if TIME_RE.fullmatch(t) and t not in seen:
@@ -625,28 +628,28 @@ def schedule_times(s):
 
 
 def sent_key(uid, slot):
-    return f"daily_sent:{uid}" if slot == "daily" else f"extra_sent:{uid}:{slot[6:]}"
+    return f"extra_sent:{uid}:{slot[6:]}"
 
 
 def due_messages(s, uid):
     """Messages whose time has come and that nobody has received yet: [{"slot", "key", "msg"}].
-    The prices from the send time to the same time the next day, that hour included (14:00 -> 14:00 tomorrow). Hours that
-    are not published yet (the next day before 14:00) are forecast estimates. The same message for every recipient, at every time."""
+    The prices from the send time to the same time the next day, that hour included (14:25 -> 14:25 tomorrow). Hours that
+    are not published yet (the next day before 14:20) are forecast estimates. The same message for every recipient, at every time."""
     now, out = datetime.now(TZ), []
     for slot, t in schedule_times(s):
         for day in (now.date(), now.date() - timedelta(days=1)):  # yesterday too: the grace period may reach past midnight
             start = datetime.combine(day, datetime.min.time(), TZ).replace(hour=int(t[:2]), minute=int(t[3:]))
             late = (now - start).total_seconds()
-            key = day.isoformat() if slot == "daily" else f"{day.isoformat()} {t}"
-            if not 0 <= late < (DAILY_GRACE if slot == "daily" else EXTRA_GRACE) or kv_get(sent_key(uid, slot)) == key:
+            key = f"{day.isoformat()} {t}"
+            if not 0 <= late < GRACE or kv_get(sent_key(uid, slot)) == key:
                 continue
             tr = kv_get(f"tries:{uid}:{slot}") or {}
             if tr.get("key") == key and (tr["n"] >= MAX_TRIES or time.time() - tr["at"] < RETRY_AFTER):
                 continue
             a = int(start.timestamp())
             b = int((start + timedelta(days=1, hours=1)).timestamp())  # until the same time tomorrow, that hour included
-            # published by now: today until midnight; from 14:00 also tomorrow (Nord Pool publishes it around 13:45)
-            known = datetime.combine(day + timedelta(days=1 if start.hour < SEND_HOUR else 2), datetime.min.time(), TZ)
+            # published by now: today until midnight; from 14:20 also tomorrow (released at 14:15, fetched at 14:20)
+            known = datetime.combine(day + timedelta(days=1 if (start.hour, start.minute) < FETCH_AT else 2), datetime.min.time(), TZ)
             need = min(b, int(known.timestamp()))
             rows = db.execute("SELECT ts, spot FROM prices WHERE ts>=? ORDER BY ts", (a - 3600,)).fetchall()
             if not rows or rows[-1][0] < need - 3600:  # what should be published is not yet: wait for it
@@ -680,10 +683,13 @@ def schedule_info(uid, s):
             "email": sum(1 for r in s["recipients"] if r["email"]) if s["smtp_host"] else 0}
 
 
-def has_tomorrow():
-    end = datetime.now(TZ).replace(hour=0, minute=0, second=0, microsecond=0) + timedelta(days=2)
+def prices_missing():
+    """True while published prices that should exist are not stored: today's, and from 14:20 on (released at 14:15) tomorrow's.
+    Published prices do not change, so nothing is fetched while this is False."""
+    n = datetime.now(TZ)
+    end = n.replace(hour=0, minute=0, second=0, microsecond=0) + timedelta(days=2 if (n.hour, n.minute) >= FETCH_AT else 1)
     r = db.execute("SELECT MAX(ts) FROM prices").fetchone()[0]
-    return bool(r and r >= end.timestamp() - 3600)
+    return not r or r < end.timestamp() - 3600
 
 
 async def worker():
@@ -691,8 +697,9 @@ async def worker():
     async with httpx.AsyncClient(timeout=30, headers={"User-Agent": "electricityfinland/1.0"}) as c:
         while True:
             now = time.time()
-            waiting = not has_tomorrow() and datetime.now(TZ).hour >= 13
-            for k, every, fn in (("p", 600 if waiting else 3600, fetch_prices), ("f", 3600, fetch_forecasts),
+            # prices: at 14:20, then every 5 min until tomorrow is stored, then not again until the next day at 14:20;
+            # estimates (and wind) every 30 min
+            for k, every, fn in (("p", 300 if prices_missing() else float("inf"), fetch_prices), ("f", 1800, fetch_forecasts),
                                  ("h", 86400, backfill), ("w", 3600, update_weather),
                                  ("wh", 86400, lambda c: update_weather(c, backfill=True))):
                 if now - last[k] > every:
