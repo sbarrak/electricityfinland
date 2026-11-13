@@ -2,6 +2,9 @@
 
 Format follows [Keep a Changelog](https://keepachangelog.com/); versions follow [SemVer](https://semver.org/).
 
+## [1.0.1] - 2026-11-13
+- Author credit at the end of every page (app, landing page, mockups, README).
+
 ## [1.0.0] - 2026-11-13
 First public release.
 - 15-minute Nord Pool spot prices, week-ahead estimate, wind power and weather.
