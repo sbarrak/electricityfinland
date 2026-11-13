@@ -156,3 +156,6 @@ Update: `git pull && docker compose up -d --build`.
 pip install fastapi httpx pytest tzdata && python -m pytest tests   # backend: price maths, skipped alerts
 node --test tests/*.test.js                                          # frontend: price parts, Finnish time, chart / readout rules
 ```
+
+---
+Created by [Sergio Barrak](https://github.com/sbarrak).
