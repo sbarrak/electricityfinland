@@ -3,6 +3,13 @@ name: Release
 on:
   push:
     tags: ['v*.*.*']
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version tag to create from the selected branch, e.g. v1.0.0'
+        required: true
+env:
+  VERSION: ${{ github.event.inputs.version || github.ref_name }}
 permissions:
   contents: write
   packages: write
@@ -27,7 +34,7 @@ jobs:
           file: ${{ matrix.file }}
           push: true
           tags: |
-            ghcr.io/sbarrak/${{ matrix.name }}:${{ github.ref_name }}
+            ghcr.io/sbarrak/${{ matrix.name }}:${{ env.VERSION }}
             ghcr.io/sbarrak/${{ matrix.name }}:latest
   release:
     runs-on: ubuntu-latest
@@ -36,4 +43,4 @@ jobs:
       - name: Create release from tag
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: gh release create "$GITHUB_REF_NAME" --generate-notes --title "$GITHUB_REF_NAME"
+        run: gh release create "$VERSION" --target "${{ github.sha }}" --title "$VERSION" --notes-file CHANGELOG.md
