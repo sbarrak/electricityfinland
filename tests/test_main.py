@@ -121,3 +121,23 @@ def test_a_time_before_14_20_does_not_wait_for_tomorrow(monkeypatch):
     today = ts(2026, 11, 10, 23, 45)
     assert due_at(monkeypatch, "14:19", (14, 19), today) == ["14:19"]
     assert due_at(monkeypatch, "14:20", (14, 20), today) == []
+
+
+def missing_at(monkeypatch, now, last_price):
+    monkeypatch.setattr(main, "datetime", At)
+    At.fixed = At(2026, 11, 10, *now, tzinfo=HELSINKI)
+    main.db.execute("DELETE FROM prices")
+    main.upsert("prices", [(t, 5.0) for t in range(ts(2026, 11, 9, 0), last_price + 1, 900)])
+    return main.prices_missing()
+
+
+def test_prices_are_fetched_only_while_something_published_is_missing(monkeypatch):
+    yesterday, today, tomorrow = ts(2026, 11, 9, 23, 45), ts(2026, 11, 10, 23, 45), ts(2026, 11, 11, 23, 45)
+    assert missing_at(monkeypatch, (0, 5), today) is False  # after midnight: tomorrow became today, nothing to fetch
+    assert missing_at(monkeypatch, (14, 19), today) is False  # tomorrow is still an estimate
+    assert missing_at(monkeypatch, (14, 20), today) is True  # released at 14:15: fetch now
+    assert missing_at(monkeypatch, (14, 21), tomorrow) is False  # stored: no more checking
+    assert missing_at(monkeypatch, (23, 59), tomorrow) is False
+    assert missing_at(monkeypatch, (9, 0), yesterday) is True  # today's prices are not there (first start, outage)
+    main.db.execute("DELETE FROM prices")
+    assert main.prices_missing() is True  # empty database

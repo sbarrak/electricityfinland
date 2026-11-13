@@ -683,21 +683,23 @@ def schedule_info(uid, s):
             "email": sum(1 for r in s["recipients"] if r["email"]) if s["smtp_host"] else 0}
 
 
-def has_tomorrow():
-    end = datetime.now(TZ).replace(hour=0, minute=0, second=0, microsecond=0) + timedelta(days=2)
+def prices_missing():
+    """True while published prices that should exist are not stored: today's, and from 14:20 on (released at 14:15) tomorrow's.
+    Published prices do not change, so nothing is fetched while this is False."""
+    n = datetime.now(TZ)
+    end = n.replace(hour=0, minute=0, second=0, microsecond=0) + timedelta(days=2 if (n.hour, n.minute) >= FETCH_AT else 1)
     r = db.execute("SELECT MAX(ts) FROM prices").fetchone()[0]
-    return bool(r and r >= end.timestamp() - 3600)
+    return not r or r < end.timestamp() - 3600
 
 
 async def worker():
     last = {"p": 0, "f": 0, "h": 0, "w": 0, "wh": 0}
     async with httpx.AsyncClient(timeout=30, headers={"User-Agent": "electricityfinland/1.0"}) as c:
         while True:
-            now, at = time.time(), datetime.now(TZ).replace(hour=FETCH_AT[0], minute=FETCH_AT[1], second=0, microsecond=0).timestamp()
-            waiting = now >= at and not has_tomorrow()  # tomorrow is released at 14:15: fetch at 14:20, then every 5 min until it is there
-            if waiting and last["p"] < at:
-                last["p"] = 0
-            for k, every, fn in (("p", 300 if waiting else 3600, fetch_prices), ("f", 3600, fetch_forecasts),
+            now = time.time()
+            # prices: at 14:20, then every 5 min until tomorrow is stored, then not again until the next day at 14:20;
+            # estimates (and wind) every 30 min
+            for k, every, fn in (("p", 300 if prices_missing() else float("inf"), fetch_prices), ("f", 1800, fetch_forecasts),
                                  ("h", 86400, backfill), ("w", 3600, update_weather),
                                  ("wh", 86400, lambda c: update_weather(c, backfill=True))):
                 if now - last[k] > every:

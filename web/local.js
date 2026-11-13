@@ -244,7 +244,7 @@
   const scheduleInfo = s => ({ times: scheduleTimes(s).map(x => x[1]), last: get('last_send', null),
     wa: s.recipients.filter(r => r.phone && r.apikey).length, email: s.ejs_service && s.ejs_template && s.ejs_key ? s.recipients.filter(r => r.email).length : 0 });
 
-  const last = { p: 0, f: 0, h: 0 };
+  const last = { p: 0, f: 0, w: 0, h: 0 };
   let sending = false;
   async function refresh(fingrid = true) {
     const out = { prices: await track('prices', fetchPrices), forecast: await track('forecast', fetchForecasts), weather: await track('weather', fetchWeather) };
@@ -253,12 +253,13 @@
     return out;
   }
   async function tick() {
-    const t = now(), n = new Date(), at = new Date(n.getFullYear(), n.getMonth(), n.getDate(), 0, FETCH_AT) / 1000;
-    const waiting = t >= at && lastPrice() < midnight(2) / 1000 - 3600;  // tomorrow is released at 14:15: fetch at 14:20, then every 5 min until it is there
-    if (waiting && last.p < at) last.p = 0;
+    const t = now(), n = new Date();
+    // prices: at 14:20, then every 5 min until tomorrow is stored, then not again until the next day at 14:20 (published prices do not change)
+    const missing = !(lastPrice() >= midnight(n.getHours() * 60 + n.getMinutes() >= FETCH_AT ? 2 : 1) / 1000 - 3600);
     let changed = false;
-    if (t - last.p > (waiting ? 300 : 3600)) { last.p = t; await track('prices', fetchPrices); changed = true; }
-    if (t - last.f > 3600) { last.f = t; await track('forecast', fetchForecasts); await track('fingrid', fetchFingrid); await track('weather', fetchWeather); changed = true; }
+    if (missing && t - last.p > 300) { last.p = t; await track('prices', fetchPrices); changed = true; }
+    if (t - last.f > 1800) { last.f = t; await track('forecast', fetchForecasts); changed = true; }  // estimates: every 30 min
+    if (t - last.w > 3600) { last.w = t; await track('fingrid', fetchFingrid); await track('weather', fetchWeather); changed = true; }
     if (t - last.h > 86400) { last.h = t; await track('history', () => backfill()); await track('weather history', () => backfillWeather()); changed = true; }
     if (changed) { persist(); if (!document.querySelector('#main.hidden')) window.load?.(); }
     if (sending) return;  // a slow send must not be started a second time by the next tick
@@ -318,7 +319,7 @@
           if (k === 'ui_layout' && !['signal', 'studio', 'calm'].includes(s[k])) throw new Error('invalid layout');
         }
         put('settings', Object.fromEntries(Object.entries(s).filter(([k]) => k in DEFAULTS)));
-        if (body.fingrid_key) last.f = 0;  // fetch with the new key on the next tick
+        if (body.fingrid_key) last.w = 0;  // fetch with the new key on the next tick
         return s;
       }
       if (p === 'consumption') {  // mirrors /api/consumption in app/main.py
