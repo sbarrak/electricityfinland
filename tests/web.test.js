@@ -85,3 +85,11 @@ test('changed page files have a new cache-busting version', () => {
   const h = web('index.html');
   assert.match(h, /costs\.js\?v=14/); assert.match(h, /app\.js\?v=29/); assert.match(h, /home\.js\?v=2/); assert.match(h, /style\.css\?v=20/);
 });
+
+test('no built-in 14:00 message: 14:25 is a removable default, tomorrow is fetched from 14:20', () => {
+  const l = web('local.js');
+  assert.match(l, /extra_time_1: '14:25'/); assert.match(l, /const out = \[\], seen = new Set\(\);/); assert.match(l, /FETCH_AT = 14 \* 60 \+ 20/);
+  assert.doesNotMatch(l, /daily|SEND_HOUR/);
+  for (const f of ['app.js', 'home.js', 'views.js', 'index.html', 'local.js']) assert.doesNotMatch(web(f), /14:00|13:45/, f);
+  assert.match(web('home.js'), /released at 14:15 and updated here around 14:20/);
+});

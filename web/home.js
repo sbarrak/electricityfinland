@@ -72,7 +72,7 @@ const Home = (() => {
     if (ch) { const h = new Date(ch.ts * 1000).getHours(), today = rel(ch.ts * 1000) === 'Today';
       const when = ch.ts * 1000 - Date.now() < 9e5 ? 'now' : today ? (h >= 18 ? 'tonight at ' : 'later today at ') + hm(ch.ts * 1000) : (h < 6 ? 'tonight at ' : 'tomorrow at ') + hm(ch.ts * 1000);
       sentence += ` The cheapest three hours start ${when}, averaging ${fmt(ch.avg)}.`; }
-    else sentence += " Tomorrow's prices are published around 14:00.";
+    else sentence += " Tomorrow's prices are released at 14:15 and updated here around 14:20.";
     return { cur, v, td, tm, ch, state, tone: st || (d < 0 ? 'good' : 'warn'), sentence };
   }
   const wxIcon = s => !s ? null : s.thunder ? 'thunder' : s.kind === 'snow' ? 'snow' : s.kind === 'sleet' ? 'sleet' : s.kind ? 'rain' : s.fog ? 'fog'
@@ -232,7 +232,7 @@ const Home = (() => {
   function ladder(n = 6) {  // the published hours from now on, cheapest first
     const h0 = new Date(); h0.setMinutes(0, 0, 0);
     const pts = agg(D.actual.filter(r => r[0] * 1000 >= +h0), 3600, val, false, alarmVal);
-    if (!pts.length) return '<li class="hint">No published prices from now on. Tomorrow\'s prices are published around 14:00.</li>';
+    if (!pts.length) return '<li class="hint">No published prices from now on. Tomorrow\'s prices are released at 14:15 and updated here around 14:20.</li>';
     const mx = Math.max(...pts.map(p => p.y)), mn = Math.min(0, ...pts.map(p => p.y));
     return [...pts].sort((x, y) => x.y - y.y).slice(0, n).map((p, i) => `<li class="${stateOf(p.a)}" data-t="${p.x}"><span class="rk">${i + 1}</span><span class="tm">${rel(p.x)} ${hm(p.x)}${p.x === +h0 ? ' <em>now</em>' : ''}</span>` +
       `<span class="br"><i style="width:${(Math.max(.03, (p.y - mn) / ((mx - mn) || 1)) * 100).toFixed(1)}%"></i></span><b>${fmt(p.y)}</b></li>`).join('');
@@ -285,17 +285,17 @@ const Home = (() => {
     const center = () => q('#hCenter').innerHTML = dday === 0
       ? (ins.cur ? `<span class="lbl">Now · ${hm(ins.cur[0] * 1000)}</span><span class="p">${fmt(ins.v)}</span><span class="u">c/kWh</span><span class="st ${ins.tone}">${ins.state}</span>` : '<span class="u">No price yet</span>')
       : ins.tm ? `<span class="lbl">Tomorrow avg</span><span class="p">${fmt(ins.tm.avg)}</span><span class="u">c/kWh</span><span class="st">${fmt(ins.tm.min)} – ${fmt(ins.tm.max)}</span>`
-      : '<span class="lbl">Tomorrow</span><span class="u">Estimate · prices<br>come around 14:00</span>';
+      : '<span class="lbl">Tomorrow</span><span class="u">Estimate · prices<br>come around 14:20</span>';
     dial(q('#hDial'), d0, { onHover: p => p ? q('#hCenter').innerHTML = `<span class="lbl">${hm(p.x)}–${hm(p.x + p.w)}</span><span class="p">${fmt(p.y)}</span><span class="u">c/kWh</span><span class="st ${p.state}">${KIND[p.kind]}</span>` : center(), onPick: p => pick(p.x) });
     center();
     const ch = ins.ch, late = ch && ch.ts * 1000 - Date.now() > 3 * H;
     q('#hHead').textContent = ins.cur && stateOf(alarmVal(ins.cur)) === 'hi' ? 'Expensive right now. Wait if you can.'
-      : !ch ? 'Prices for tomorrow come around 14:00.' : !late ? 'A cheap stretch is coming up soon.' : `Cheapest from ${hm(ch.ts * 1000)} ${rel(ch.ts * 1000) === 'Today' ? 'tonight' : 'tomorrow'}.`;
+      : !ch ? 'Prices for tomorrow come around 14:20.' : !late ? 'A cheap stretch is coming up soon.' : `Cheapest from ${hm(ch.ts * 1000)} ${rel(ch.ts * 1000) === 'Today' ? 'tonight' : 'tomorrow'}.`;
     q('#hLede').textContent = ins.sentence;
     q('#hWins').innerHTML = [1, 3, 6].map(h => { const w = best(h); return w ? `<button type="button" class="win" data-t="${w.ts * 1000}"><span class="lbl">Cheapest ${h} h</span><b>${hm(w.ts * 1000)}–${hm(w.end * 1000)}</b><span class="sub">${rel(w.ts * 1000)} · avg ${fmt(w.avg)}</span><span class="in">${until(w.ts)}</span></button>` : ''; }).join('');
     const c = ins.cur, tr = c && priceValue(S, c[0], c[1], 'transfer', vat), wn = windNow();
     q('#hMini').innerHTML = `<div><span class="lbl">Today avg</span><b>${ins.td ? fmt(ins.td.avg) : '–'}</b><span>${ins.td ? `${fmt(ins.td.min)} – ${fmt(ins.td.max)}` : ''}</span></div>` +
-      `<div><span class="lbl">Tomorrow avg</span><b>${ins.tm ? fmt(ins.tm.avg) : '–'}</b><span>${ins.tm ? `${fmt(ins.tm.min)} – ${fmt(ins.tm.max)}` : 'published ~14:00'}</span></div>` +
+      `<div><span class="lbl">Tomorrow avg</span><b>${ins.tm ? fmt(ins.tm.avg) : '–'}</b><span>${ins.tm ? `${fmt(ins.tm.min)} – ${fmt(ins.tm.max)}` : 'updated ~14:20'}</span></div>` +
       `<div><span class="lbl">Transfer now</span><b>${c ? fmt(tr) : '–'}</b><span>${c ? (priceParts(S, c[0], c[1]).night ? 'night' : 'day') + ' rate + tax' : ''}</span></div>` +
       `<div><span class="lbl">Wind</span><b>${wn ? Math.round(wn[1]).toLocaleString('en-GB') + ' MW' : '–'}</b>${spark(windSeries(), 96, 22)}</div>`;
     const h0 = new Date(); h0.setMinutes(0, 0, 0);
@@ -311,7 +311,7 @@ const Home = (() => {
     const ins = insight(), c = ins.cur, tr = c && priceValue(S, c[0], c[1], 'transfer', vat), wn = windNow(), ch = ins.ch;
     q('#hKpis').innerHTML = `<div class="kpi now"><span class="lbl">Now${c ? ' · ' + hm(c[0] * 1000) + '–' + hm(c[0] * 1000 + 9e5) : ''}</span><span class="v">${c ? fmt(ins.v) : '–'}<small>c/kWh</small></span><span><span class="badge ${ins.tone}">${ins.state}</span></span></div>` +
       `<div class="kpi"><span class="lbl">Today avg</span><span class="v">${ins.td ? fmt(ins.td.avg) : '–'}</span><span class="s">${ins.td ? `${fmt(ins.td.min)} – ${fmt(ins.td.max)}` : ''}</span>${spark(hourSeries(midnight(), midnight(1)))}</div>` +
-      `<div class="kpi"><span class="lbl">Tomorrow avg</span><span class="v">${ins.tm ? fmt(ins.tm.avg) : '–'}</span><span class="s">${ins.tm ? `${fmt(ins.tm.min)} – ${fmt(ins.tm.max)}` : 'published ~14:00'}</span>${ins.tm ? spark(hourSeries(midnight(1), midnight(2))) : ''}</div>` +
+      `<div class="kpi"><span class="lbl">Tomorrow avg</span><span class="v">${ins.tm ? fmt(ins.tm.avg) : '–'}</span><span class="s">${ins.tm ? `${fmt(ins.tm.min)} – ${fmt(ins.tm.max)}` : 'updated ~14:20'}</span>${ins.tm ? spark(hourSeries(midnight(1), midnight(2))) : ''}</div>` +
       `<div class="kpi"><span class="lbl">Cheapest 3 h</span><span class="v">${ch ? hm(ch.ts * 1000) : '–'}<small>${ch ? rel(ch.ts * 1000) : ''}</small></span><span class="s">${ch ? `avg ${fmt(ch.avg)}` : ''}${c ? ` · transfer now ${fmt(tr)}` : ''}</span></div>` +
       `<div class="kpi wind"><span class="lbl">Wind power</span><span class="v">${wn ? Math.round(wn[1]).toLocaleString('en-GB') : '–'}<small>MW</small></span>${spark(windSeries())}</div>`;
     qa('#hRange button').forEach(b => b.classList.toggle('on', b.dataset.v === studioRange));
@@ -333,7 +333,7 @@ const Home = (() => {
     const ch = ins.ch, tr = c && priceValue(S, c[0], c[1], 'transfer', vat), wn = windNow();
     const fact = (id, lbl, v, sub) => `<button type="button" class="fact" data-info="${id}"><span class="lbl">${lbl}</span><b>${v}</b><span class="sub">${sub}</span><i class="ii" aria-hidden="true">i</i></button>`;
     q('#hFacts').innerHTML = fact('today', 'Today', ins.td ? fmt(ins.td.avg) : '–', ins.td ? `${fmt(ins.td.min)} – ${fmt(ins.td.max)}` : '') +
-      fact('tomorrow', 'Tomorrow', ins.tm ? fmt(ins.tm.avg) : '–', ins.tm ? `${fmt(ins.tm.min)} – ${fmt(ins.tm.max)}` : 'published ~14:00') +
+      fact('tomorrow', 'Tomorrow', ins.tm ? fmt(ins.tm.avg) : '–', ins.tm ? `${fmt(ins.tm.min)} – ${fmt(ins.tm.max)}` : 'updated ~14:20') +
       fact('cheap', 'Cheapest 3 h', ch ? hm(ch.ts * 1000) : '–', ch ? `${rel(ch.ts * 1000)} · avg ${fmt(ch.avg)}` : '') +
       fact('transfer', 'Transfer now', c ? fmt(tr) : '–', c ? (priceParts(S, c[0], c[1]).night ? 'Night' : 'Day') + ' rate + tax' : '') +
       fact('wind', 'Wind power', wn ? Math.round(wn[1]).toLocaleString('en-GB') + ' <small>MW</small>' : '–', spark(windSeries(), 110, 24));

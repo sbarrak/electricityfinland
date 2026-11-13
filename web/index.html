@@ -159,14 +159,14 @@
           </div>
           <div class="card group autosave" id="schedCard">
             <h3>Schedule <small>Finnish time</small></h3>
-            <p class="hint">A message with the fixed prices from 14:00 to 14:00 tomorrow is sent every day at <b>14:00</b> (as soon as Nord Pool publishes them). Add up to 3 more times. Before 14:00 the hours after midnight are estimates, marked ~.</p>
+            <p class="hint">A message with the prices from the send time to the same time tomorrow is sent every day at each time below (up to 3). Tomorrow's actual prices are released at <b>14:15</b> and this site is updated around <b>14:20</b>, so <b>14:25</b> is the standard time; you can change or remove it. At a time before 14:20 the hours after midnight are estimates, marked ~.</p>
             <div class="grid" id="notif"></div>
             <div class="timesbox">
-              <p class="hint"><b>Extra send times</b> (<span id="tzNote">Finnish time</span>). ✕ turns a time off.</p>
+              <p class="hint"><b>Send times</b> (<span id="tzNote">Finnish time</span>). ✕ turns a time off.</p>
               <div class="times">
-                <div class="tbox"><div class="thead"><span>Time 1</span><button type="button" class="clr" data-clr="extra_time_1" aria-label="Turn off time 1" title="Turn off">✕</button></div><input type="time" data-k="extra_time_1" aria-label="Extra send time 1"></div>
-                <div class="tbox"><div class="thead"><span>Time 2</span><button type="button" class="clr" data-clr="extra_time_2" aria-label="Turn off time 2" title="Turn off">✕</button></div><input type="time" data-k="extra_time_2" aria-label="Extra send time 2"></div>
-                <div class="tbox"><div class="thead"><span>Time 3</span><button type="button" class="clr" data-clr="extra_time_3" aria-label="Turn off time 3" title="Turn off">✕</button></div><input type="time" data-k="extra_time_3" aria-label="Extra send time 3"></div>
+                <div class="tbox"><div class="thead"><span>Time 1</span><button type="button" class="clr" data-clr="extra_time_1" aria-label="Turn off time 1" title="Turn off">✕</button></div><input type="time" data-k="extra_time_1" aria-label="Send time 1"></div>
+                <div class="tbox"><div class="thead"><span>Time 2</span><button type="button" class="clr" data-clr="extra_time_2" aria-label="Turn off time 2" title="Turn off">✕</button></div><input type="time" data-k="extra_time_2" aria-label="Send time 2"></div>
+                <div class="tbox"><div class="thead"><span>Time 3</span><button type="button" class="clr" data-clr="extra_time_3" aria-label="Turn off time 3" title="Turn off">✕</button></div><input type="time" data-k="extra_time_3" aria-label="Send time 3"></div>
               </div>
             </div>
           </div>
@@ -267,7 +267,7 @@
   <form method="dialog" id="msgForm">
     <h2>Messages</h2>
     <p class="hint">Placeholders for the period lines: <code id="phAlarm"></code><br>Placeholders for the summary: <code id="phSummary"></code></p>
-    <p class="hint">A message is sent every day at 14:00 and at the extra times under Alerts, to every recipient in the list. It has a summary, then the hourly prices. When the price is at or above the high limit or at or below the low limit, one highlighted line is added for each such period and those hours are marked in the list. Extra times before 14:00 cover the time until midnight, because the next day is not fixed yet.</p>
+    <p class="hint">A message is sent every day at the send times under Alerts (14:25 as standard), to every recipient in the list. It has a summary, then the hourly prices. When the price is at or above the high limit or at or below the low limit, one highlighted line is added for each such period and those hours are marked in the list. At times before 14:20 the hours after midnight are estimates, because the next day's prices are released at 14:15 and updated here around 14:20.</p>
     <label>Line for a period at or above the high limit<textarea data-m="msg_high" rows="2"></textarea></label>
     <p class="hint preview" data-p="msg_high"></p>
     <label>Line for a period at or below the low limit<textarea data-m="msg_low" rows="2"></textarea></label>

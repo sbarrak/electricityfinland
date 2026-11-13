@@ -58,9 +58,9 @@ def test_scheduled_message_without_setup_is_skipped_not_failed():
          "recipients": recipients(phone="+358401234567", email="a@b.fi")}
     out = asyncio.run(main.notify(None, s, {"subject": "x", "wa": "x", "text": "x"}))
     assert out and all(main.skipped(v) for v in out.values()), out
-    due = {"slot": "daily", "key": "2026-11-10", "time": "14:00"}
+    due = {"slot": "extra:0", "key": "2026-11-10 14:25", "time": "14:25"}
     main.record_send(1, due, out)
-    assert main.kv_get("tries:1:daily") is None  # nothing counted as a failure, nothing to retry
+    assert main.kv_get("tries:1:extra:0") is None  # nothing counted as a failure, nothing to retry
     assert main.kv_get("last_send:1") is None
 
 
@@ -71,5 +71,53 @@ def test_test_message_still_explains_what_is_missing():
 
 
 def test_real_failure_is_still_retried():
-    main.record_send(2, {"slot": "daily", "key": "k", "time": "14:00"}, {"A email": "failed: boom"})
-    assert main.kv_get("tries:2:daily")["n"] == 1
+    main.record_send(2, {"slot": "extra:0", "key": "k", "time": "14:25"}, {"A email": "failed: boom"})
+    assert main.kv_get("tries:2:extra:0")["n"] == 1
+
+
+def test_no_built_in_14_00_message_and_14_25_is_only_a_default():
+    assert main.schedule_times(main.settings(901)) == [("extra:0", "14:25")]  # a new user: the standard time
+    main.kv_set("settings:902", {**main.DEFAULTS, "sched_v2": True, "extra_time_1": ""})  # the user removed it
+    assert main.schedule_times(main.settings(902)) == []
+
+
+def test_settings_saved_before_get_14_25_in_the_first_free_time():
+    old = {k: v for k, v in main.DEFAULTS.items() if k != "sched_v2"}
+    main.kv_set("settings:903", {**old, "extra_time_1": "07:49", "extra_time_2": ""})
+    assert [t for _, t in main.schedule_times(main.settings(903))] == ["07:49", "14:25"]
+    main.kv_set("settings:904", {**old, "extra_time_1": "06:00", "extra_time_2": "12:00", "extra_time_3": "20:00"})
+    assert [t for _, t in main.schedule_times(main.settings(904))] == ["06:00", "12:00", "20:00"]  # no free time: nothing is replaced
+
+
+class At(datetime):  # a fixed "now" for due_messages()
+    fixed = None
+
+    @classmethod
+    def now(cls, tz=None):
+        return cls.fixed
+
+
+def due_at(monkeypatch, send, now, last_price):
+    """The messages due at `now` (h, min) for the send time `send`, with prices stored up to `last_price` (a timestamp)."""
+    monkeypatch.setattr(main, "datetime", At)
+    At.fixed = At(2026, 11, 10, *now, tzinfo=HELSINKI)
+    main.db.execute("DELETE FROM prices")
+    main.db.execute("DELETE FROM kv WHERE k LIKE 'extra_sent:%' OR k LIKE 'tries:%'")
+    main.upsert("prices", [(t, 5.0) for t in range(ts(2026, 11, 10, 0), last_price + 1, 900)])
+    s = {**main.DEFAULTS, "sched_v2": True, "extra_time_1": send}
+    return [d["time"] for d in main.due_messages(s, 905)]
+
+
+def test_14_25_message_waits_for_tomorrows_prices(monkeypatch):
+    today, tomorrow = ts(2026, 11, 10, 23, 45), ts(2026, 11, 11, 23, 45)
+    assert due_at(monkeypatch, "14:25", (14, 24), tomorrow) == []  # not yet time
+    assert due_at(monkeypatch, "14:25", (14, 25), today) == []  # tomorrow is not there yet: wait
+    assert due_at(monkeypatch, "14:25", (14, 25), tomorrow) == ["14:25"]
+    assert due_at(monkeypatch, "14:25", (16, 0), today) == ["14:25"]  # still missing after 90 min: sent with estimates
+    assert due_at(monkeypatch, "14:25", (17, 30), tomorrow) == []  # more than 3 h late
+
+
+def test_a_time_before_14_20_does_not_wait_for_tomorrow(monkeypatch):
+    today = ts(2026, 11, 10, 23, 45)
+    assert due_at(monkeypatch, "14:19", (14, 19), today) == ["14:19"]
+    assert due_at(monkeypatch, "14:20", (14, 20), today) == []

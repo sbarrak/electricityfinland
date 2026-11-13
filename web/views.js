@@ -12,7 +12,7 @@ const Views = (() => {
   function ladder() {
     const cur = bucketStart(Math.floor(Date.now() / 1000), 3600) * 1000;
     const pts = agg(D.actual.filter(r => r[0] * 1000 >= cur), 3600, val, false, alarmVal);
-    if (!pts.length) return '<p class="hint">No published prices from now on. Tomorrow\'s prices are published around 14:00.</p>';
+    if (!pts.length) return '<p class="hint">No published prices from now on. Tomorrow\'s prices are released at 14:15 and updated here around 14:20.</p>';
     const ys = pts.map(p => p.y), lo = Math.min(0, ...ys), hi = Math.max(...ys, lo + 0.01);
     const sorted = [...pts].sort((a, b) => a.y - b.y || a.x - b.x);
     const rows = sorted.map((p, i) => {
@@ -145,7 +145,7 @@ const Views = (() => {
     const kwh = Math.max(0, +$('#hKwh').value || 0), hrs = +$('#hDur').value, w = windows(hrs * 3600), out = $('#hOut');
     const euro = avg => kwh * avg / 100, eur = v => v.toFixed(2) + ' €', when = ts => `${WD[new Date(ts * 1000).getDay()]} ${hm(ts * 1000)}`;
     if (!kwh) { out.innerHTML = '<p class="hint">Enter the energy the device uses.</p>'; return; }
-    if (!w.length) { out.innerHTML = `<p class="hint">Not enough published prices from now on for ${hrs} h. Tomorrow's prices are published around 14:00.</p>`; return; }
+    if (!w.length) { out.innerHTML = `<p class="hint">Not enough published prices from now on for ${hrs} h. Tomorrow's prices are released at 14:15 and updated here around 14:20.</p>`; return; }
     const now = w[0], best = w.reduce((x, y) => y.avg < x.avg ? y : x), worst = w.reduce((x, y) => y.avg > x.avg ? y : x), save = euro(now.avg) - euro(best.avg);
     const tile = (cls, t, ts, avg, sub = '') => `<div class="ht ${cls}"><small>${t}</small><b>${eur(euro(avg))}</b><span>${when(ts)}–${hm((ts + hrs * 3600) * 1000)} · avg ${fmt(avg)} c/kWh${sub}</span></div>`;
     out.innerHTML = tile('', 'Start now', now.ts, now.avg) + tile('lo', 'Cheapest start', best.ts, best.avg) + tile('hi', 'Most expensive start', worst.ts, worst.avg) +
