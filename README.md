@@ -38,7 +38,7 @@ Self-hosted monitor for Finnish electricity spot prices (Nord Pool day-ahead, 15
   - The chart shows the consumption (violet, kWh per bar, summed when zoomed out) with the price (blue) on the right axis. Tap a bar for its cost.
   - Below the chart: kWh used and the cost in view, **the average price you paid** (weighted by your use) against the plain average price, and how much timing your use saved or cost. The cost is kWh × the price of each hour or 15 minutes (an hourly reading uses the average of its four 15-minute prices), with your Costs settings and the **Spot / Total cost** and **Incl. VAT** choices.
   - Read automatically: .xlsx (first sheet, Excel dates too), `;` `,` or tab separated CSV, decimal comma or point, ISO times (UTC or with a zone, as in Datahub) or Finnish local times (`1.1.2025 0:00`, also a separate hour column), Wh / kWh / MWh. When the file has both consumption and production (Datahub), only the consumption is imported; several metering points are added up.
-- Missing prices are fetched automatically when the app starts, and the latest ones when the page opens; **⟳ Refresh prices** fetches them again on demand. A year of past prices is loaded from [sahkotin.fi](https://sahkotin.fi); when you pick a period (preset or From date) that reaches further back than what is stored, the missing prices are fetched from there on demand (up to about 6 years) and kept.
+- **When data is updated**: published prices are fetched only while some are missing (today's, and from 14:20 tomorrow's, every 5 minutes until they are stored), and when the page opens; published prices never change, so after that nothing is fetched until the next day at 14:20. The price estimates, the wind power and the weather are updated every hour, and the price and weather history once a day. **⟳ Refresh prices** fetches prices, estimates and weather on demand. A year of past prices is loaded from [sahkotin.fi](https://sahkotin.fi); when you pick a period (preset or From date) that reaches further back than what is stored, the missing prices are fetched from there on demand (up to about 6 years) and kept.
 - **Login and users**: the first login is `admin` / `admin`; you then pick your own username and password and become the **admin** (Settings → Account to change it later). The admin can add users, **reset their password** and remove them in the **Users** box (username + temporary password; the new user chooses their own password at first login). Every user has their **own recipients, email server, alarms, messages and costs**, and their own send times.
 - **Alarms and messages** (the Alerts section, saved automatically): the **Above** and **Below** limits are switched on when the page opens. The next day's actual prices are released at 14:15 Finnish time; the app fetches them at **14:20** (then every 5 minutes until they are there) and the page shows them right after. Once they are stored the prices are not fetched again until the next day at 14:20, because published prices do not change. Until then tomorrow is shown as an **estimate**, which is updated every hour; at midnight tomorrow's prices become today's and the new tomorrow is an estimate again. Under Schedule there are **up to 3 send times** (a box with ✕ to turn one off; the boxes shrink with the window instead of overlapping); **14:25 is filled in as the standard time** and can be changed or removed like the others (with no time set, no scheduled message is sent). Each message has the prices from its send time to the same time the next day (that hour included), and is sent as soon as the prices are there if that is later; before 14:20 tomorrow's prices are not fixed yet, so the hours after midnight are listed as **estimates** from the price forecast (marked ~, under *Estimates (forecast, not published yet)*; the summary and the limits use only the published prices).
   - **Every recipient** in the list gets every scheduled message (WhatsApp when phone + key are filled in, email when an address is). The tick box at the start of a row is only for the **Send WhatsApp / Send email** tests.
@@ -51,7 +51,7 @@ Self-hosted monitor for Finnish electricity spot prices (Nord Pool day-ahead, 15
 - **Email server menu** for your SMTP relay (server, port, STARTTLS/SSL, username, password) with a test button.
 - **⬇ Export** (next to From / To) downloads the prices as **CSV or Excel** for a whole **year**, a **month**, a **week** (pick any day of it, weeks start on Monday), a **day**, or a **custom** period of up to a year, in rows of 15 min, 1 h or 1 day, with or without VAT. Every row has the spot price, total cost, wind power, temperature, wind m/s, weather and status. A period older than what the page has loaded is fetched first.
 - **Weather** place (Settings): search a town or village in **Finland** and pick it from the list; the weather of the last year is loaded for it. Every user has their own place (default Helsinki). Weather is stored like the prices and is not deleted; older weather is fetched when you pick an older period.
-- **Chart** also shows wind power forecast + actuals (MW, right axis) and a "now" line.
+- **Chart** also shows the wind power forecast + actuals (MW; in its own panel under the prices with the A / B bars) and a "now" line.
 - Total cost = spot + VAT + provider margin + transfer (day/night) + electricity tax + other, optionally plus monthly fees spread per kWh.
 - **Notifications**: WhatsApp (free, via CallMeBot) and email (your own SMTP server).
 - Responsive layout for iPhone, iPad and desktop (tab bar on a phone, icon rail on a tablet in Studio); light/dark mode; password login.
@@ -60,11 +60,12 @@ Self-hosted monitor for Finnish electricity spot prices (Nord Pool day-ahead, 15
 | Data | Source | Key |
 |---|---|---|
 | Day-ahead prices | [spot-hinta.fi](https://spot-hinta.fi), fallback [porssisahko.net](https://porssisahko.net) | none |
+| Price history (up to about 6 years) | [sahkotin.fi](https://sahkotin.fi) | none |
 | Price estimate + wind forecast (~7 days) | [nordpool-predict-fi](https://github.com/vividfog/nordpool-predict-fi) | none |
 | Weather: forecast (16 days), history, place search | [Open-Meteo](https://open-meteo.com) (forecast, archive and geocoding APIs) | none |
 | Official wind forecast + actual production (optional) | [Fingrid Open Data](https://data.fingrid.fi) datasets 245 / 75 | free API key |
 
-The estimate is a machine-learning forecast and can be badly off on volatile days; only the solid line is the real price.
+The estimate is a machine-learning forecast and can be badly off on volatile days; only the published prices (charcoal up to now, violet for the rest of today and tomorrow) are real.
 
 ## Three ways to run
 | | Docker (NAS) | Local server (test on your computer) | Standalone (double-click) |
@@ -131,10 +132,15 @@ Enter all per-kWh fees in **c/kWh including VAT**, as they appear on Finnish inv
 ## Layout
 ```
 docker-compose.yml   nginx (static + /api proxy) + app
-docker-compose.portainer.yml  same for Portainer: builds from GitHub, keeps data + web files on the NAS
+docker-compose.portainer.yml  same for Portainer: pulls the prebuilt images from ghcr.io, keeps data + web files on the NAS
+.github/workflows/docker.yml  builds and publishes the app and setup images to ghcr.io on every push to main
 setup/Dockerfile     one-shot container that copies web/ and nginx config to the NAS folders
 app/main.py          FastAPI: fetchers, cost calc, alarms, notifications, login (SQLite in ./data)
-web/                 index.html, app.js, style.css (Chart.js), grid.js (Grid View tab, export), views.js (the extra chart views and the cost helper), weather.js (weather icons), local.js (standalone backend)
+web/                 index.html, app.js (Explore chart, sections, settings), home.js (the Now page: Signal / Studio / Calm), costs.js (price maths, message texts),
+                     grid.js (Grid View tab, export), views.js (the extra chart views and the cost helper), consumption.js (Usage import),
+                     weather.js (weather icons), local.js (standalone backend), style.css + layout.css (Chart.js)
+tests/               test_main.py (backend), web.test.js (frontend)
+mockups/             the design mockups the three layouts came from
 ElectricityFinland.html  double-click launcher for standalone mode
 run.bat / run.sh     local server launcher (no Docker/nginx)
 run-dev.bat / run-dev.sh  same without login, for testing
