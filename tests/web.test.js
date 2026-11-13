@@ -94,7 +94,7 @@ test('no built-in 14:00 message: 14:25 is a removable default, tomorrow is fetch
   assert.match(web('home.js'), /released at 14:15 and updated here around 14:20/);
 });
 
-test('prices are fetched only while missing, estimates every 30 min', () => {
+test('prices are fetched only while missing, estimates every hour', () => {
   const l = web('local.js');
-  assert.match(l, /if \(missing && t - last\.p > 300\)/); assert.match(l, /t - last\.f > 1800\) \{ last\.f = t; await track\('forecast', fetchForecasts\)/);
+  assert.match(l, /if \(missing && t - last\.p > 300\)/); assert.match(l, /t - last\.f > 3600\) \{ last\.f = t; await track\('forecast', fetchForecasts\)/);
 });
