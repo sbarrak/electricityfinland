@@ -1,5 +1,7 @@
 # electricityfinland
 
+[![Publish images](https://github.com/sbarrak/electricityfinland/actions/workflows/docker.yml/badge.svg)](https://github.com/sbarrak/electricityfinland/actions/workflows/docker.yml) [![License: GPL v3](https://img.shields.io/badge/license-GPL--3.0-blue.svg)](LICENSE) [Website](https://sbarrak.github.io/electricityfinland/) · [Changelog](CHANGELOG.md) · [Security](SECURITY.md)
+
 Self-hosted monitor for Finnish electricity spot prices (Nord Pool day-ahead, 15-min), price estimates for the coming week, wind power forecasts and the local weather — with WhatsApp / email alarms. Runs in Docker on a NAS behind a reverse proxy.
 
 ## Features
